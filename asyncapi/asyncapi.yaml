@@ -2,17 +2,19 @@ asyncapi: 3.0.0
 
 info:
   title: Discordia — Event Bus
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Eventos de dominio que viajan por RabbitMQ entre los servicios de
     Discordia (ADR-07).
 
     - Exchange `discordia.events`, tipo `topic`, durable.
-    - Routing key `<servicio>.<acción en pasado>` (ej. `servers.member_joined`).
+    - Routing key `<servicio>.<acción en pasado>` (ej. `servers.member_joined`,
+      `users.profile_updated`).
     - Mensajes `application/json`, persistentes (`delivery_mode = 2`).
     - Garantía at-least-once: los publishers usan outbox transaccional y los
       consumidores deben ser **idempotentes** (deduplicar por `event_id`) y
-      tolerar **desorden** (usar `occurred_at`). No hay replay nativo.
+      tolerar **desorden** (usar `occurred_at`, o `version` en los eventos que
+      la tienen). No hay replay nativo.
     - Una cola durable por servicio consumidor, con ack manual.
 
     Este documento es la fuente de verdad del schema. Las implementaciones Go
@@ -82,6 +84,23 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  profileUpdated:
+    address: users.profile_updated
+    title: users.profile_updated
+    description: |
+      Foto completa del perfil público de un usuario (no un diff). identify la
+      publica al crear el usuario (registro con email o alta por OAuth) y en
+      cada cambio de perfil o de estado personalizado. `version` crece con
+      cada cambio del mismo usuario: el consumidor aplica una foto solo si su
+      `version` es mayor a la que ya tiene, así que eventos repetidos o fuera
+      de orden no pisan datos más nuevos. El email no viaja nunca
+      (minimización de datos).
+    messages:
+      profileUpdated:
+        $ref: '#/components/messages/ProfileUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
 operations:
   publishMemberJoined:
     action: send
@@ -119,6 +138,15 @@ operations:
       amqp:
         deliveryMode: 2
 
+  publishProfileUpdated:
+    action: send
+    title: discordia-identify publica users.profile_updated
+    channel:
+      $ref: '#/channels/profileUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
   identifyReceiveMemberJoined:
     action: receive
     title: discordia-identify consume servers.member_joined
@@ -135,6 +163,19 @@ operations:
     description: Cola `identify.server_memberships`.
     channel:
       $ref: '#/channels/memberLeft'
+    bindings:
+      amqp:
+        ack: true
+
+  serversReceiveProfileUpdated:
+    action: receive
+    title: discordia-servers consume users.profile_updated
+    description: |
+      Cola `servers.user_profiles`. Mantiene la réplica `user_profiles` que
+      usa `GET /v1/servers/{serverId}/members` para devolver el perfil de cada
+      miembro sin llamar a identify.
+    channel:
+      $ref: '#/channels/profileUpdated'
     bindings:
       amqp:
         ack: true
@@ -201,6 +242,23 @@ components:
             server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
             user_id: user-123
             unbanned_by: user-456
+
+    ProfileUpdated:
+      name: ProfileUpdated
+      title: Perfil de usuario actualizado
+      payload:
+        $ref: '#/components/schemas/ProfileUpdated'
+      examples:
+        - payload:
+            event_id: 2d4f6a8c-1b3e-4d5f-9a7c-8e0b2d4f6a8c
+            occurred_at: '2026-09-28T14:30:00Z'
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            version: 3
+            name: Manu
+            avatar_url: https://example.supabase.co/storage/v1/object/public/avatars/7c1e5a3b.png
+            description: Estudiante de FIUBA
+            status_text: Jugando
+            status_emoji: 🎮
 
   schemas:
     Meta:
@@ -273,3 +331,33 @@ components:
             unbanned_by:
               type: string
               description: Usuario con BAN_MEMBERS que revocó el ban.
+
+    ProfileUpdated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [user_id, version, name, avatar_url, description, status_text, status_emoji]
+          properties:
+            user_id:
+              type: string
+              format: uuid
+              description: ID del usuario en discordia-identify.
+            version:
+              type: integer
+              format: int64
+              minimum: 1
+              description: profile_version del usuario en identify. Crece con cada cambio; ordena las fotos del mismo usuario.
+            name:
+              type: string
+            avatar_url:
+              type: string
+              description: URL pública del avatar, o vacío si no tiene.
+            description:
+              type: string
+              description: Vacío si no tiene.
+            status_text:
+              type: string
+              description: Texto del estado personalizado, o vacío si no tiene.
+            status_emoji:
+              type: string
+              description: Emoji del estado personalizado, o vacío si no tiene.
