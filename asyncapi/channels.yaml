@@ -1,0 +1,183 @@
+asyncapi: 3.0.0
+
+info:
+  title: Discordia — Channels events
+  version: 0.1.0
+  description: |
+    Eventos del dominio de canales que viajan por RabbitMQ entre `servers`
+    (publisher) y `messaging` (consumidor). Documento aparte de
+    `asyncapi.yaml` (que cubre membership) porque son dominios distintos con
+    ciclos de vida propios -- ver `README.md` para el índice completo.
+
+    - Exchange `discordia.events`, tipo `topic`, durable (el mismo que usa
+      membership -- un único exchange para todo el bus de eventos).
+    - Routing key `<servicio>.<acción en pasado>` (ej. `servers.channel_created`).
+    - Mensajes `application/json`, persistentes (`delivery_mode = 2`).
+    - Garantía at-least-once: el publisher usa outbox transaccional y el
+      consumidor debe ser **idempotente** (deduplicar por `event_id`) y
+      tolerar **desorden** (usar `occurred_at`). No hay replay nativo.
+    - Una cola durable por servicio consumidor, con ack manual.
+
+    Este documento es la fuente de verdad del schema. Las implementaciones
+    viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract)
+    (`channels/events.go` y `channels/events.ex`): un cambio de schema se hace
+    primero acá y después se replica allá.
+
+servers:
+  rabbitmq:
+    host: '{host}'
+    protocol: amqp
+    description: Broker RabbitMQ (local vía docker-compose; en la nube, CloudAMQP).
+    variables:
+      host:
+        default: localhost:5672
+
+defaultContentType: application/json
+
+channels:
+  channelCreated:
+    address: servers.channel_created
+    title: servers.channel_created
+    description: Se creó un canal (de texto o de voz) dentro de un servidor.
+    messages:
+      channelCreated:
+        $ref: '#/components/messages/ChannelCreated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  channelDeleted:
+    address: servers.channel_deleted
+    title: servers.channel_deleted
+    description: |
+      Se eliminó un canal. No transporta el historial de mensajes (vive en
+      `messaging`): el consumidor debe purgar/marcar inválido su propio
+      read-model para ese `channel_id`.
+    messages:
+      channelDeleted:
+        $ref: '#/components/messages/ChannelDeleted'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+operations:
+  publishChannelCreated:
+    action: send
+    title: discordia-servers publica servers.channel_created
+    channel:
+      $ref: '#/channels/channelCreated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishChannelDeleted:
+    action: send
+    title: discordia-servers publica servers.channel_deleted
+    channel:
+      $ref: '#/channels/channelDeleted'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  messagingReceiveChannelCreated:
+    action: receive
+    title: discordia-messaging consume servers.channel_created
+    description: Cola `messaging.channel_lifecycle`.
+    channel:
+      $ref: '#/channels/channelCreated'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveChannelDeleted:
+    action: receive
+    title: discordia-messaging consume servers.channel_deleted
+    description: Cola `messaging.channel_lifecycle`.
+    channel:
+      $ref: '#/channels/channelDeleted'
+    bindings:
+      amqp:
+        ack: true
+
+components:
+  channelBindings:
+    discordiaEvents:
+      amqp:
+        is: routingKey
+        exchange:
+          name: discordia.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+
+  messages:
+    ChannelCreated:
+      name: ChannelCreated
+      title: Canal creado
+      payload:
+        $ref: '#/components/schemas/ChannelCreated'
+      examples:
+        - payload:
+            event_id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+            occurred_at: '2026-09-28T14:30:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            channel_id: 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
+            name: general
+            kind: text
+
+    ChannelDeleted:
+      name: ChannelDeleted
+      title: Canal eliminado
+      payload:
+        $ref: '#/components/schemas/ChannelDeleted'
+      examples:
+        - payload:
+            event_id: 2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e
+            occurred_at: '2026-09-28T15:00:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            channel_id: 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
+
+  schemas:
+    Meta:
+      type: object
+      description: Campos comunes a todo evento (`envelope.Meta` en events-contract).
+      required: [event_id, occurred_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+
+    ChannelCreated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, channel_id, name, kind]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            channel_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            kind:
+              type: string
+              enum: [text, voice]
+
+    ChannelDeleted:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, channel_id]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            channel_id:
+              type: string
+              format: uuid

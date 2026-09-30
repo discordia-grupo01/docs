@@ -7,17 +7,29 @@ decisiones de arquitectura.
 
 | Carpeta | Qué hay |
 |---|---|
-| [`asyncapi/`](asyncapi/asyncapi.yaml) | Contrato del event bus (RabbitMQ, exchange `discordia.events`): cada evento, su routing key, su payload y quién lo publica/consume. Es la fuente de verdad del schema; las implementaciones Go viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract). |
+| [`asyncapi/asyncapi.yaml`](asyncapi/asyncapi.yaml) | Dominio membership (altas/bajas/bans de miembros de un servidor). |
+| [`asyncapi/channels.yaml`](asyncapi/channels.yaml) | Dominio channels (alta/baja de canales), consumido por `messaging`. |
+| [`adr/`](adr/) | Registro de decisiones de arquitectura (ADRs). |
+
+Cada dominio es un documento AsyncAPI aparte (no uno solo gigante): mismo
+exchange `discordia.events` compartido, pero cada archivo es autocontenido
+(duplica `Meta`/`channelBindings` en vez de referenciarlos entre archivos).
+Es la fuente de verdad del schema; las implementaciones viven en
+[`events-contract`](https://github.com/discordia-grupo01/events-contract)
+(Go y, cuando aplica, el binding del lenguaje del consumidor).
 
 ## Eventos documentados
 
-| Routing key | Publica | Consume |
-|---|---|---|
-| `servers.member_joined` | discordia-servers | discordia-identify |
-| `servers.member_left` | discordia-servers | discordia-identify |
-| `servers.member_banned` | discordia-servers | — (futuro: mensajería, voz, auditoría) |
-| `servers.member_unbanned` | discordia-servers | — |
+| Routing key | Publica | Consume | Documento |
+|---|---|---|---|
+| `servers.member_joined` | discordia-servers | discordia-identify | `asyncapi.yaml` |
+| `servers.member_left` | discordia-servers | discordia-identify | `asyncapi.yaml` |
+| `servers.member_banned` | discordia-servers | — (futuro: mensajería, voz, auditoría) | `asyncapi.yaml` |
+| `servers.member_unbanned` | discordia-servers | — | `asyncapi.yaml` |
 | `users.profile_updated` | discordia-identify | discordia-servers |
+| `servers.channel_created` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`) | `channels.yaml` |
+| `servers.channel_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`) | `channels.yaml` |
+
 
 ## Cambiar un evento
 
