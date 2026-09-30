@@ -26,15 +26,16 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `servers.member_left` | discordia-servers | discordia-identify | `asyncapi.yaml` |
 | `servers.member_banned` | discordia-servers | — (futuro: mensajería, voz, auditoría) | `asyncapi.yaml` |
 | `servers.member_unbanned` | discordia-servers | — | `asyncapi.yaml` |
+| `users.profile_updated` | discordia-identify | discordia-servers |
 | `servers.channel_created` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`) | `channels.yaml` |
 | `servers.channel_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`) | `channels.yaml` |
 
+
 ## Cambiar un evento
 
-1. Editar el `asyncapi/<dominio>.yaml` correspondiente (o crear uno nuevo si
-   es un dominio nuevo) y validarlo:
+1. Editar `asyncapi/asyncapi.yaml` y validarlo:
    ```bash
-   npx @asyncapi/cli validate asyncapi/<dominio>.yaml
+   npx @asyncapi/cli validate asyncapi/asyncapi.yaml
    ```
 2. Replicar el cambio en `events-contract` y taguear una versión nueva.
 3. Actualizar publisher(s) y consumer(s). Un cambio que rompe compatibilidad

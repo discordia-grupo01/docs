@@ -1,0 +1,363 @@
+asyncapi: 3.0.0
+
+info:
+  title: Discordia — Event Bus
+  version: 0.3.0
+  description: |
+    Eventos de dominio que viajan por RabbitMQ entre los servicios de
+    Discordia (ADR-07).
+
+    - Exchange `discordia.events`, tipo `topic`, durable.
+    - Routing key `<servicio>.<acción en pasado>` (ej. `servers.member_joined`,
+      `users.profile_updated`).
+    - Mensajes `application/json`, persistentes (`delivery_mode = 2`).
+    - Garantía at-least-once: los publishers usan outbox transaccional y los
+      consumidores deben ser **idempotentes** (deduplicar por `event_id`) y
+      tolerar **desorden** (usar `occurred_at`, o `version` en los eventos que
+      la tienen). No hay replay nativo.
+    - Una cola durable por servicio consumidor, con ack manual.
+
+    Este documento es la fuente de verdad del schema. Las implementaciones Go
+    viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract):
+    un cambio de schema se hace primero acá y después se replica allá.
+
+servers:
+  rabbitmq:
+    host: '{host}'
+    protocol: amqp
+    description: Broker RabbitMQ (local vía docker-compose; en la nube, CloudAMQP).
+    variables:
+      host:
+        default: localhost:5672
+
+defaultContentType: application/json
+
+channels:
+  memberJoined:
+    address: servers.member_joined
+    title: servers.member_joined
+    description: Un usuario pasó a ser miembro de un servidor (al crearlo como owner o al unirse por invitación).
+    messages:
+      memberJoined:
+        $ref: '#/components/messages/MemberJoined'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  memberLeft:
+    address: servers.member_left
+    title: servers.member_left
+    description: |
+      Un usuario dejó de ser miembro de un servidor: porque lo abandonó o
+      porque fue removido (por ejemplo, baneado). Un ban publica este evento
+      **y** `servers.member_banned` en la misma transacción.
+    messages:
+      memberLeft:
+        $ref: '#/components/messages/MemberLeft'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  memberBanned:
+    address: servers.member_banned
+    title: servers.member_banned
+    description: |
+      Un miembro fue baneado de un servidor (HU #25). Mientras el ban esté
+      activo no puede volver a unirse con ninguna invitación. Pensado para que
+      Mensajería y Voz corten las sesiones activas del usuario en ese servidor
+      y para la auditoría de moderación. El motivo del ban no viaja en el
+      evento (minimización de datos).
+    messages:
+      memberBanned:
+        $ref: '#/components/messages/MemberBanned'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  memberUnbanned:
+    address: servers.member_unbanned
+    title: servers.member_unbanned
+    description: |
+      Se revocó el ban de un usuario (HU #26). No lo vuelve a hacer miembro:
+      tiene que unirse con una invitación válida, lo que publicará
+      `servers.member_joined`.
+    messages:
+      memberUnbanned:
+        $ref: '#/components/messages/MemberUnbanned'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  profileUpdated:
+    address: users.profile_updated
+    title: users.profile_updated
+    description: |
+      Foto completa del perfil público de un usuario (no un diff). identify la
+      publica al crear el usuario (registro con email o alta por OAuth) y en
+      cada cambio de perfil o de estado personalizado. `version` crece con
+      cada cambio del mismo usuario: el consumidor aplica una foto solo si su
+      `version` es mayor a la que ya tiene, así que eventos repetidos o fuera
+      de orden no pisan datos más nuevos. El email no viaja nunca
+      (minimización de datos).
+    messages:
+      profileUpdated:
+        $ref: '#/components/messages/ProfileUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+operations:
+  publishMemberJoined:
+    action: send
+    title: discordia-servers publica servers.member_joined
+    channel:
+      $ref: '#/channels/memberJoined'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishMemberLeft:
+    action: send
+    title: discordia-servers publica servers.member_left
+    channel:
+      $ref: '#/channels/memberLeft'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishMemberBanned:
+    action: send
+    title: discordia-servers publica servers.member_banned
+    channel:
+      $ref: '#/channels/memberBanned'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishMemberUnbanned:
+    action: send
+    title: discordia-servers publica servers.member_unbanned
+    channel:
+      $ref: '#/channels/memberUnbanned'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishProfileUpdated:
+    action: send
+    title: discordia-identify publica users.profile_updated
+    channel:
+      $ref: '#/channels/profileUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  identifyReceiveMemberJoined:
+    action: receive
+    title: discordia-identify consume servers.member_joined
+    description: Cola `identify.server_memberships`.
+    channel:
+      $ref: '#/channels/memberJoined'
+    bindings:
+      amqp:
+        ack: true
+
+  identifyReceiveMemberLeft:
+    action: receive
+    title: discordia-identify consume servers.member_left
+    description: Cola `identify.server_memberships`.
+    channel:
+      $ref: '#/channels/memberLeft'
+    bindings:
+      amqp:
+        ack: true
+
+  serversReceiveProfileUpdated:
+    action: receive
+    title: discordia-servers consume users.profile_updated
+    description: |
+      Cola `servers.user_profiles`. Mantiene la réplica `user_profiles` que
+      usa `GET /v1/servers/{serverId}/members` para devolver el perfil de cada
+      miembro sin llamar a identify.
+    channel:
+      $ref: '#/channels/profileUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+components:
+  channelBindings:
+    discordiaEvents:
+      amqp:
+        is: routingKey
+        exchange:
+          name: discordia.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+
+  messages:
+    MemberJoined:
+      name: MemberJoined
+      title: Miembro unido
+      payload:
+        $ref: '#/components/schemas/MemberJoined'
+      examples:
+        - payload:
+            event_id: 3f9c2a1e-6b1d-4c1a-9a3e-2b7f0c8d9e10
+            occurred_at: '2026-09-26T14:30:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            user_id: user-123
+
+    MemberLeft:
+      name: MemberLeft
+      title: Miembro salió o fue removido
+      payload:
+        $ref: '#/components/schemas/MemberLeft'
+      examples:
+        - payload:
+            event_id: 8a1d4c2b-3e5f-4a6b-9c7d-1e2f3a4b5c6d
+            occurred_at: '2026-09-26T14:35:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            user_id: user-123
+
+    MemberBanned:
+      name: MemberBanned
+      title: Miembro baneado
+      payload:
+        $ref: '#/components/schemas/MemberBanned'
+      examples:
+        - payload:
+            event_id: 5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f
+            occurred_at: '2026-09-26T14:35:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            user_id: user-123
+            banned_by: user-456
+
+    MemberUnbanned:
+      name: MemberUnbanned
+      title: Ban revocado
+      payload:
+        $ref: '#/components/schemas/MemberUnbanned'
+      examples:
+        - payload:
+            event_id: 9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b
+            occurred_at: '2026-09-27T10:00:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            user_id: user-123
+            unbanned_by: user-456
+
+    ProfileUpdated:
+      name: ProfileUpdated
+      title: Perfil de usuario actualizado
+      payload:
+        $ref: '#/components/schemas/ProfileUpdated'
+      examples:
+        - payload:
+            event_id: 2d4f6a8c-1b3e-4d5f-9a7c-8e0b2d4f6a8c
+            occurred_at: '2026-09-28T14:30:00Z'
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            version: 3
+            name: Manu
+            avatar_url: https://example.supabase.co/storage/v1/object/public/avatars/7c1e5a3b.png
+            description: Estudiante de FIUBA
+            status_text: Jugando
+            status_emoji: 🎮
+
+  schemas:
+    Meta:
+      type: object
+      description: Campos comunes a todo evento (`envelope.Meta` en events-contract).
+      required: [event_id, occurred_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+
+    MemberJoined:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, user_id]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            user_id:
+              type: string
+              description: ID del usuario (emitido por discordia-identify).
+
+    MemberLeft:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, user_id]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            user_id:
+              type: string
+
+    MemberBanned:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, user_id, banned_by]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            user_id:
+              type: string
+              description: Usuario baneado.
+            banned_by:
+              type: string
+              description: Usuario (owner, administrador o moderador con BAN_MEMBERS) que ejecutó el ban.
+
+    MemberUnbanned:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, user_id, unbanned_by]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            user_id:
+              type: string
+              description: Usuario cuyo ban se revocó.
+            unbanned_by:
+              type: string
+              description: Usuario con BAN_MEMBERS que revocó el ban.
+
+    ProfileUpdated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [user_id, version, name, avatar_url, description, status_text, status_emoji]
+          properties:
+            user_id:
+              type: string
+              format: uuid
+              description: ID del usuario en discordia-identify.
+            version:
+              type: integer
+              format: int64
+              minimum: 1
+              description: profile_version del usuario en identify. Crece con cada cambio; ordena las fotos del mismo usuario.
+            name:
+              type: string
+            avatar_url:
+              type: string
+              description: URL pública del avatar, o vacío si no tiene.
+            description:
+              type: string
+              description: Vacío si no tiene.
+            status_text:
+              type: string
+              description: Texto del estado personalizado, o vacío si no tiene.
+            status_emoji:
+              type: string
+              description: Emoji del estado personalizado, o vacío si no tiene.
