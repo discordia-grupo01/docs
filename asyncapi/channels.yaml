@@ -58,6 +58,24 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  serverDeleted:
+    address: servers.server_deleted
+    title: servers.server_deleted
+    description: |
+      Se eliminó un servidor de forma permanente. `servers` ya borró sus
+      canales, roles, categorías, invitaciones y bans; lo que vive en otros
+      servicios lo tiene que purgar cada consumidor. `messaging` borra todos los
+      mensajes de esos canales y los saca de su caché de canales. Trae los ids de
+      todos los canales que tenía el servidor para que el consumidor no dependa de
+      su propia copia. La eliminación publica, en la misma transacción, un
+      `servers.member_left` por cada miembro (para quien lleva la membresía) y
+      este evento.
+    messages:
+      serverDeleted:
+        $ref: '#/components/messages/ServerDeleted'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
 operations:
   publishChannelCreated:
     action: send
@@ -73,6 +91,15 @@ operations:
     title: discordia-servers publica servers.channel_deleted
     channel:
       $ref: '#/channels/channelDeleted'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishServerDeleted:
+    action: send
+    title: discordia-servers publica servers.server_deleted
+    channel:
+      $ref: '#/channels/serverDeleted'
     bindings:
       amqp:
         deliveryMode: 2
@@ -93,6 +120,16 @@ operations:
     description: Cola `messaging.channel_lifecycle`.
     channel:
       $ref: '#/channels/channelDeleted'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveServerDeleted:
+    action: receive
+    title: discordia-messaging consume servers.server_deleted
+    description: Cola `messaging.channel_lifecycle`. Idempotente.
+    channel:
+      $ref: '#/channels/serverDeleted'
     bindings:
       amqp:
         ack: true
@@ -135,6 +172,20 @@ components:
             occurred_at: '2026-09-28T15:00:00Z'
             server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
             channel_id: 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
+
+    ServerDeleted:
+      name: ServerDeleted
+      title: Servidor eliminado
+      payload:
+        $ref: '#/components/schemas/ServerDeleted'
+      examples:
+        - payload:
+            event_id: 3c4d5e6f-7a8b-4c9d-8e0f-2a3b4c5d6e7f
+            occurred_at: '2026-10-02T18:00:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            channel_ids:
+              - 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
+              - 7e6d5c4b-3a2f-4b1c-8d9e-8f7a6b5c4d3e
 
   schemas:
     Meta:
@@ -181,3 +232,19 @@ components:
             channel_id:
               type: string
               format: uuid
+
+    ServerDeleted:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, channel_ids]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            channel_ids:
+              type: array
+              description: Ids de todos los canales (texto y voz) que tenía el servidor. Puede ser vacío, nunca null.
+              items:
+                type: string
+                format: uuid
