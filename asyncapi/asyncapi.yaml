@@ -48,8 +48,9 @@ channels:
     title: servers.member_left
     description: |
       Un usuario dejó de ser miembro de un servidor: porque lo abandonó o
-      porque fue removido (por ejemplo, baneado). Un ban publica este evento
-      **y** `servers.member_banned` en la misma transacción.
+      porque fue removido (baneado o expulsado). Un ban publica este evento
+      **y** `servers.member_banned` en la misma transacción; una expulsión,
+      este evento **y** `servers.member_kicked`.
     messages:
       memberLeft:
         $ref: '#/components/messages/MemberLeft'
@@ -81,6 +82,20 @@ channels:
     messages:
       memberUnbanned:
         $ref: '#/components/messages/MemberUnbanned'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  memberKicked:
+    address: servers.member_kicked
+    title: servers.member_kicked
+    description: |
+      Un miembro fue expulsado de un servidor (HU #59). A diferencia del ban,
+      puede volver a unirse con una invitación válida. Pensado para que
+      Notificaciones le avise al expulsado. Se publica junto con
+      `servers.member_left` en la misma transacción.
+    messages:
+      memberKicked:
+        $ref: '#/components/messages/MemberKicked'
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
@@ -134,6 +149,15 @@ operations:
     title: discordia-servers publica servers.member_unbanned
     channel:
       $ref: '#/channels/memberUnbanned'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishMemberKicked:
+    action: send
+    title: discordia-servers publica servers.member_kicked
+    channel:
+      $ref: '#/channels/memberKicked'
     bindings:
       amqp:
         deliveryMode: 2
@@ -243,6 +267,19 @@ components:
             user_id: user-123
             unbanned_by: user-456
 
+    MemberKicked:
+      name: MemberKicked
+      title: Miembro expulsado
+      payload:
+        $ref: '#/components/schemas/MemberKicked'
+      examples:
+        - payload:
+            event_id: 4b5c6d7e-8f9a-4b0c-9d1e-2f3a4b5c6d7e
+            occurred_at: '2026-10-04T15:00:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            user_id: user-123
+            kicked_by: user-456
+
     ProfileUpdated:
       name: ProfileUpdated
       title: Perfil de usuario actualizado
@@ -331,6 +368,22 @@ components:
             unbanned_by:
               type: string
               description: Usuario con BAN_MEMBERS que revocó el ban.
+
+    MemberKicked:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, user_id, kicked_by]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            user_id:
+              type: string
+              description: Usuario expulsado.
+            kicked_by:
+              type: string
+              description: Usuario (owner, administrador o miembro con KICK_MEMBERS) que ejecutó la expulsión.
 
     ProfileUpdated:
       allOf:

@@ -17,6 +17,7 @@ decisiones de arquitectura.
 | `servers.member_left` | discordia-servers | discordia-identify |
 | `servers.member_banned` | discordia-servers | — (futuro: mensajería, voz, auditoría) |
 | `servers.member_unbanned` | discordia-servers | — |
+| `servers.member_kicked` | discordia-servers | — (futuro: notificaciones) |
 | `users.profile_updated` | discordia-identify | discordia-servers |
 
 ## Cambiar un evento
