@@ -50,7 +50,9 @@ channels:
       Un usuario dejó de ser miembro de un servidor: porque lo abandonó o
       porque fue removido (baneado o expulsado). Un ban publica este evento
       **y** `servers.member_banned` en la misma transacción; una expulsión,
-      este evento **y** `servers.member_kicked`.
+      este evento **y** `servers.member_kicked`. Eliminar un servidor publica
+      este evento una vez por cada miembro **y** `servers.server_deleted`
+      (ver `channels.yaml`) en la misma transacción.
     messages:
       memberLeft:
         $ref: '#/components/messages/MemberLeft'
