@@ -26,7 +26,8 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `servers.member_left` | discordia-servers | discordia-identify | `asyncapi.yaml` |
 | `servers.member_banned` | discordia-servers | — (futuro: mensajería, voz, auditoría) | `asyncapi.yaml` |
 | `servers.member_unbanned` | discordia-servers | — | `asyncapi.yaml` |
-| `users.profile_updated` | discordia-identify | discordia-servers |
+| `servers.member_kicked` | discordia-servers | — (futuro: notificaciones) | `asyncapi.yaml` |
+| `users.profile_updated` | discordia-identify | discordia-servers | `asyncapi.yaml` |
 | `servers.channel_created` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`) | `channels.yaml` |
 | `servers.channel_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`) | `channels.yaml` |
 | `servers.server_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`) | `channels.yaml` |
