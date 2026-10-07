@@ -320,6 +320,18 @@ components:
             user_id: user-123
             kicked_by: user-456
 
+    MemberMuted:
+      name: MemberMuted
+      title: Miembro silenciado temporalmente
+      payload:
+        $ref: '#/components/schemas/MemberMuted'
+
+    MemberUnmuted:
+      name: MemberUnmuted
+      title: Silencio revocado
+      payload:
+        $ref: '#/components/schemas/MemberUnmuted'
+
     ProfileUpdated:
       name: ProfileUpdated
       title: Perfil de usuario actualizado
@@ -426,18 +438,6 @@ components:
               description: Usuario (owner, administrador o miembro con KICK_MEMBERS) que ejecutó la expulsión.
 
     MemberMuted:
-      name: MemberMuted
-      title: Miembro silenciado temporalmente
-      payload:
-        $ref: '#/components/schemas/MemberMuted'
-
-    MemberUnmuted:
-      name: MemberUnmuted
-      title: Silencio revocado
-      payload:
-        $ref: '#/components/schemas/MemberUnmuted'
-
-    MemberMuted:
       allOf:
         - $ref: '#/components/schemas/Meta'
         - type: object
@@ -447,7 +447,7 @@ components:
             user_id: {type: string}
             muted_by: {type: string}
             until_at: {type: string, format: date-time}
-            reason: {type: string, enum: [manual]}
+            reason: {type: string}
 
     MemberUnmuted:
       allOf:
