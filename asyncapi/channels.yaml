@@ -2,10 +2,10 @@ asyncapi: 3.0.0
 
 info:
   title: Discordia — Channels events
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Eventos del dominio de canales que viajan por RabbitMQ entre `servers`
-    (publisher) y `messaging` (consumidor). Documento aparte de
+    (publisher) y `messaging` / `voice-sfu` (consumidores). Documento aparte de
     `asyncapi.yaml` (que cubre membership) porque son dominios distintos con
     ciclos de vida propios -- ver `README.md` para el índice completo.
 
@@ -76,6 +76,35 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  channelAccessRevoked:
+    address: servers.channel_access_revoked
+    title: servers.channel_access_revoked
+    description: |
+      Miembros que podían ver un canal (`VIEW_CHANNELS` después de los
+      overrides por rol, HU #57) dejaron de poder verlo. `servers` calcula
+      quién ve cada canal antes y después del cambio, dentro de la misma
+      transacción, y publica uno por canal afectado (de texto o de voz) con
+      `user_ids` = solo quienes **perdieron** el acceso (nunca vacío). Ganar
+      acceso no se publica.
+
+      Lo disparan: crear, editar o borrar un override; editar o borrar un rol;
+      asignar o quitar un rol; aceptar una transferencia de propiedad (el
+      dueño anterior deja de ser administrador implícito); y expulsar, banear
+      o abandonar el servidor (en estos tres, además del `servers.member_left`,
+      con el miembro en un evento por cada canal que veía).
+
+      Pensado para cortar lo que el usuario tiene abierto en ese canal:
+      `messaging` cierra su socket (`access_revoked` con
+      `reason: "permissions_changed"`) y `voice-sfu` lo saca de la sala de voz.
+      Como solo corta y al reconectar se vuelve a chequear el estado actual, un
+      evento repetido o fuera de orden cuesta a lo sumo una reconexión de más:
+      los consumidores no necesitan descartar eventos viejos.
+    messages:
+      channelAccessRevoked:
+        $ref: '#/components/messages/ChannelAccessRevoked'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
 operations:
   publishChannelCreated:
     action: send
@@ -104,6 +133,15 @@ operations:
       amqp:
         deliveryMode: 2
 
+  publishChannelAccessRevoked:
+    action: send
+    title: discordia-servers publica servers.channel_access_revoked
+    channel:
+      $ref: '#/channels/channelAccessRevoked'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
   messagingReceiveChannelCreated:
     action: receive
     title: discordia-messaging consume servers.channel_created
@@ -128,6 +166,50 @@ operations:
     action: receive
     title: discordia-messaging consume servers.server_deleted
     description: Cola `messaging.channel_lifecycle`. Idempotente.
+    channel:
+      $ref: '#/channels/serverDeleted'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveChannelAccessRevoked:
+    action: receive
+    title: discordia-messaging consume servers.channel_access_revoked
+    description: |
+      Cola `messaging.channel_lifecycle`. Cierra el socket de cada usuario de
+      `user_ids` en ese canal. Sin chequeo de eventos viejos (ver el canal).
+    channel:
+      $ref: '#/channels/channelAccessRevoked'
+    bindings:
+      amqp:
+        ack: true
+
+  voiceReceiveChannelAccessRevoked:
+    action: receive
+    title: discordia-voice-sfu consume servers.channel_access_revoked
+    description: |
+      Cola `voice.signaling`. Saca de la sala `voice:<channel_id>` a cada
+      usuario de `user_ids` que esté en ella; si LiveKit falla, reencola.
+    channel:
+      $ref: '#/channels/channelAccessRevoked'
+    bindings:
+      amqp:
+        ack: true
+
+  voiceReceiveChannelDeleted:
+    action: receive
+    title: discordia-voice-sfu consume servers.channel_deleted
+    description: Cola `voice.signaling`. Cierra la sala `voice:<channel_id>` con todos adentro.
+    channel:
+      $ref: '#/channels/channelDeleted'
+    bindings:
+      amqp:
+        ack: true
+
+  voiceReceiveServerDeleted:
+    action: receive
+    title: discordia-voice-sfu consume servers.server_deleted
+    description: Cola `voice.signaling`. Cierra la sala de cada canal de `channel_ids`.
     channel:
       $ref: '#/channels/serverDeleted'
     bindings:
@@ -186,6 +268,20 @@ components:
             channel_ids:
               - 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
               - 7e6d5c4b-3a2f-4b1c-8d9e-8f7a6b5c4d3e
+
+    ChannelAccessRevoked:
+      name: ChannelAccessRevoked
+      title: Acceso a canal revocado
+      payload:
+        $ref: '#/components/schemas/ChannelAccessRevoked'
+      examples:
+        - payload:
+            event_id: 4d5e6f7a-8b9c-4d0e-9f1a-3b4c5d6e7f8a
+            occurred_at: '2026-10-08T20:00:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            channel_id: 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
+            user_ids:
+              - 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
 
   schemas:
     Meta:
@@ -248,3 +344,23 @@ components:
               items:
                 type: string
                 format: uuid
+
+    ChannelAccessRevoked:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, channel_id, user_ids]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            channel_id:
+              type: string
+              format: uuid
+            user_ids:
+              type: array
+              description: Usuarios que perdieron el acceso a ese canal. Nunca vacío, sin repetidos.
+              minItems: 1
+              uniqueItems: true
+              items:
+                type: string

@@ -101,6 +101,26 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  memberMuted:
+    address: servers.member_muted
+    title: servers.member_muted
+    description: Un miembro queda temporalmente impedido de enviar mensajes y publicar audio, pero conserva su sesión y puede recibir información.
+    messages:
+      memberMuted:
+        $ref: '#/components/messages/MemberMuted'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  memberUnmuted:
+    address: servers.member_unmuted
+    title: servers.member_unmuted
+    description: Se restablece la capacidad de enviar mensajes y publicar audio, manualmente o por expiración.
+    messages:
+      memberUnmuted:
+        $ref: '#/components/messages/MemberUnmuted'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
   profileUpdated:
     address: users.profile_updated
     title: users.profile_updated
@@ -160,6 +180,24 @@ operations:
     title: discordia-servers publica servers.member_kicked
     channel:
       $ref: '#/channels/memberKicked'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishMemberMuted:
+    action: send
+    title: discordia-servers publica servers.member_muted
+    channel:
+      $ref: '#/channels/memberMuted'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishMemberUnmuted:
+    action: send
+    title: discordia-servers publica servers.member_unmuted
+    channel:
+      $ref: '#/channels/memberUnmuted'
     bindings:
       amqp:
         deliveryMode: 2
@@ -282,6 +320,18 @@ components:
             user_id: user-123
             kicked_by: user-456
 
+    MemberMuted:
+      name: MemberMuted
+      title: Miembro silenciado temporalmente
+      payload:
+        $ref: '#/components/schemas/MemberMuted'
+
+    MemberUnmuted:
+      name: MemberUnmuted
+      title: Silencio revocado
+      payload:
+        $ref: '#/components/schemas/MemberUnmuted'
+
     ProfileUpdated:
       name: ProfileUpdated
       title: Perfil de usuario actualizado
@@ -386,6 +436,29 @@ components:
             kicked_by:
               type: string
               description: Usuario (owner, administrador o miembro con KICK_MEMBERS) que ejecutó la expulsión.
+
+    MemberMuted:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, user_id, muted_by, until_at, reason]
+          properties:
+            server_id: {type: string, format: uuid}
+            user_id: {type: string}
+            muted_by: {type: string}
+            until_at: {type: string, format: date-time}
+            reason: {type: string}
+
+    MemberUnmuted:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, user_id, unmuted_by, reason]
+          properties:
+            server_id: {type: string, format: uuid}
+            user_id: {type: string}
+            unmuted_by: {type: string}
+            reason: {type: string, enum: [manual, expired]}
 
     ProfileUpdated:
       allOf:
