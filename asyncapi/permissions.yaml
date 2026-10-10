@@ -1,0 +1,432 @@
+asyncapi: 3.0.0
+
+info:
+  title: Discordia — Permissions events
+  version: 0.1.0
+  description: |
+    Fotos del estado de roles, permisos y propiedad de un servidor que
+    `servers` publica para que otros servicios guarden su propia copia y
+    autoricen sin consultarlo en cada pedido. Hoy las consume `messaging`,
+    que decide con ellas quién puede ver un canal, escribir, moderar y a quién
+    alcanza una mención.
+
+    - Exchange `discordia.events`, tipo `topic`, durable (el mismo que usa el
+      resto del bus).
+    - Routing key `servers.<acción en pasado>`.
+    - Mensajes `application/json`, persistentes (`delivery_mode = 2`).
+    - Garantía at-least-once: el publisher usa outbox transaccional, escribiendo
+      el evento en la misma transacción que el cambio.
+    - Cada evento es una **foto completa** de una entidad, no un diff. El
+      consumidor guarda la de `occurred_at` más nueva de cada entidad: un evento
+      repetido o fuera de orden no pisa datos más recientes.
+    - Los permisos viajan por nombre (`VIEW_CHANNELS`, `SEND_MESSAGES`,
+      `MANAGE_MESSAGES`, `MENTION_EVERYONE`, `ADMINISTRATOR`, ...), nunca como
+      máscara de bits.
+    - Una cola durable por servicio consumidor, con ack manual.
+
+    Este documento es la fuente de verdad del schema. Las implementaciones
+    viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract)
+    (`permissions/events.go` y `permissions/events.ex`): un cambio de schema se
+    hace primero acá y después se replica allá.
+
+servers:
+  rabbitmq:
+    host: '{host}'
+    protocol: amqp
+    description: Broker RabbitMQ (local vía docker-compose; en la nube, CloudAMQP).
+    variables:
+      host:
+        default: localhost:5672
+
+defaultContentType: application/json
+
+channels:
+  roleUpdated:
+    address: servers.role_updated
+    title: servers.role_updated
+    description: |
+      Foto de un rol: sus permisos y si es el `@everyone` del servidor. Se
+      publica al crear el rol y en cada cambio de sus permisos, nombre o color
+      (nombre y color no viajan). `servers` re-publica todos los roles
+      existentes con una migración (backfill) cuando se suma un consumidor.
+    messages:
+      roleUpdated:
+        $ref: '#/components/messages/RoleUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  roleDeleted:
+    address: servers.role_deleted
+    title: servers.role_deleted
+    description: |
+      Se borró un rol. `servers` ya lo sacó de sus miembros y de los overrides
+      de los canales, pero no publica un evento por cada uno: el consumidor lo
+      saca de sus copias al recibir este. Un `servers.role_updated` más viejo
+      que este que llegue después no lo resucita.
+    messages:
+      roleDeleted:
+        $ref: '#/components/messages/RoleDeleted'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  memberRolesUpdated:
+    address: servers.member_roles_updated
+    title: servers.member_roles_updated
+    description: |
+      El conjunto completo de roles de un miembro, `@everyone` incluido. Se
+      publica cuando el miembro se une (al crear el servidor o con una
+      invitación) y cada vez que se le asigna o quita un rol. Dejar el servidor
+      no lo publica: eso lo anuncia `servers.member_left`, del mismo orden
+      temporal.
+    messages:
+      memberRolesUpdated:
+        $ref: '#/components/messages/MemberRolesUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  channelOverridesUpdated:
+    address: servers.channel_overrides_updated
+    title: servers.channel_overrides_updated
+    description: |
+      Todos los overrides de permisos por rol de un canal (HU #57), no solo el
+      que cambió. Lista vacía cuando ya no queda ninguno. Se publica al crear,
+      editar o borrar un override. Un canal que se borra arrastra sus overrides
+      (`servers.channel_deleted`) y un rol que se borra los suyos
+      (`servers.role_deleted`).
+    messages:
+      channelOverridesUpdated:
+        $ref: '#/components/messages/ChannelOverridesUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  ownerUpdated:
+    address: servers.owner_updated
+    title: servers.owner_updated
+    description: |
+      Quién es el dueño del servidor. El dueño y los administradores pueden todo
+      y los overrides no los alcanzan. Se publica al crear el servidor y al
+      aceptarse una transferencia de propiedad.
+    messages:
+      ownerUpdated:
+        $ref: '#/components/messages/OwnerUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+operations:
+  publishRoleUpdated:
+    action: send
+    title: discordia-servers publica servers.role_updated
+    channel:
+      $ref: '#/channels/roleUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishRoleDeleted:
+    action: send
+    title: discordia-servers publica servers.role_deleted
+    channel:
+      $ref: '#/channels/roleDeleted'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishMemberRolesUpdated:
+    action: send
+    title: discordia-servers publica servers.member_roles_updated
+    channel:
+      $ref: '#/channels/memberRolesUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishChannelOverridesUpdated:
+    action: send
+    title: discordia-servers publica servers.channel_overrides_updated
+    channel:
+      $ref: '#/channels/channelOverridesUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishOwnerUpdated:
+    action: send
+    title: discordia-servers publica servers.owner_updated
+    channel:
+      $ref: '#/channels/ownerUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  messagingReceiveRoleUpdated:
+    action: receive
+    title: discordia-messaging consume servers.role_updated
+    description: Cola `messaging.channel_lifecycle`. Guarda los permisos del rol si la foto es la más nueva.
+    channel:
+      $ref: '#/channels/roleUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveRoleDeleted:
+    action: receive
+    title: discordia-messaging consume servers.role_deleted
+    description: Cola `messaging.channel_lifecycle`. Borra el rol y lo saca de los miembros y de los overrides.
+    channel:
+      $ref: '#/channels/roleDeleted'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveMemberRolesUpdated:
+    action: receive
+    title: discordia-messaging consume servers.member_roles_updated
+    description: Cola `messaging.channel_lifecycle`. Reemplaza los roles del miembro si la foto es la más nueva.
+    channel:
+      $ref: '#/channels/memberRolesUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveChannelOverridesUpdated:
+    action: receive
+    title: discordia-messaging consume servers.channel_overrides_updated
+    description: Cola `messaging.channel_lifecycle`. Reemplaza los overrides del canal si la foto es la más nueva.
+    channel:
+      $ref: '#/channels/channelOverridesUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveOwnerUpdated:
+    action: receive
+    title: discordia-messaging consume servers.owner_updated
+    description: Cola `messaging.channel_lifecycle`. Guarda el dueño si la foto es la más nueva.
+    channel:
+      $ref: '#/channels/ownerUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+components:
+  channelBindings:
+    discordiaEvents:
+      amqp:
+        is: routingKey
+        exchange:
+          name: discordia.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+
+  messages:
+    RoleUpdated:
+      name: RoleUpdated
+      title: Rol actualizado
+      payload:
+        $ref: '#/components/schemas/RoleUpdated'
+      examples:
+        - payload:
+            event_id: 5e6f7a8b-9c0d-4e1f-8a2b-4c5d6e7f8a9b
+            occurred_at: '2026-10-09T12:00:00.123456Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            role_id: 8c7b6a5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
+            permissions: [MANAGE_MESSAGES, SEND_MESSAGES, VIEW_CHANNELS]
+            is_everyone: false
+
+    RoleDeleted:
+      name: RoleDeleted
+      title: Rol eliminado
+      payload:
+        $ref: '#/components/schemas/RoleDeleted'
+      examples:
+        - payload:
+            event_id: 6f7a8b9c-0d1e-4f2a-9b3c-5d6e7f8a9b0c
+            occurred_at: '2026-10-09T12:05:00.000000Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            role_id: 8c7b6a5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
+
+    MemberRolesUpdated:
+      name: MemberRolesUpdated
+      title: Roles de un miembro actualizados
+      payload:
+        $ref: '#/components/schemas/MemberRolesUpdated'
+      examples:
+        - payload:
+            event_id: 7a8b9c0d-1e2f-4a3b-8c4d-6e7f8a9b0c1d
+            occurred_at: '2026-10-09T12:10:00.000000Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            user_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+            role_ids:
+              - 4b3a2f1e-0d9c-4b8a-a7f6-e5d4c3b2a190
+              - 8c7b6a5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
+
+    ChannelOverridesUpdated:
+      name: ChannelOverridesUpdated
+      title: Overrides de un canal actualizados
+      payload:
+        $ref: '#/components/schemas/ChannelOverridesUpdated'
+      examples:
+        - payload:
+            event_id: 8b9c0d1e-2f3a-4b4c-9d5e-7f8a9b0c1d2e
+            occurred_at: '2026-10-09T12:15:00.000000Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            channel_id: 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
+            overrides:
+              - role_id: 4b3a2f1e-0d9c-4b8a-a7f6-e5d4c3b2a190
+                allow: []
+                deny: [SEND_MESSAGES]
+
+    OwnerUpdated:
+      name: OwnerUpdated
+      title: Dueño del servidor actualizado
+      payload:
+        $ref: '#/components/schemas/OwnerUpdated'
+      examples:
+        - payload:
+            event_id: 9c0d1e2f-3a4b-4c5d-8e6f-8a9b0c1d2e3f
+            occurred_at: '2026-10-09T12:20:00.000000Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            owner_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+
+  schemas:
+    Meta:
+      type: object
+      description: Campos comunes a todo evento (`envelope.Meta` en events-contract).
+      required: [event_id, occurred_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC. Ordena las fotos de la misma entidad.
+
+    Permission:
+      type: string
+      enum:
+        - VIEW_CHANNELS
+        - SEND_MESSAGES
+        - MANAGE_CHANNELS
+        - MANAGE_ROLES
+        - KICK_MEMBERS
+        - BAN_MEMBERS
+        - MANAGE_SERVER
+        - ADMINISTRATOR
+        - CREATE_INVITE
+        - MANAGE_MESSAGES
+        - MENTION_EVERYONE
+
+    ChannelPermission:
+      type: string
+      description: Permisos que se pueden sobrescribir por canal.
+      enum:
+        - VIEW_CHANNELS
+        - SEND_MESSAGES
+        - MANAGE_MESSAGES
+
+    RoleUpdated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, role_id, permissions, is_everyone]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            role_id:
+              type: string
+              format: uuid
+            permissions:
+              type: array
+              description: Permisos del rol a nivel servidor, ordenados, sin repetidos. Puede ser vacío, nunca null.
+              uniqueItems: true
+              items:
+                $ref: '#/components/schemas/Permission'
+            is_everyone:
+              type: boolean
+              description: true para el rol `@everyone`, que todo miembro tiene y no se puede borrar.
+
+    RoleDeleted:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, role_id]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            role_id:
+              type: string
+              format: uuid
+
+    MemberRolesUpdated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, user_id, role_ids]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            user_id:
+              type: string
+              description: ID del usuario en discordia-identify.
+            role_ids:
+              type: array
+              description: Todos los roles del miembro, `@everyone` incluido, ordenados, sin repetidos. Nunca null.
+              uniqueItems: true
+              items:
+                type: string
+                format: uuid
+
+    ChannelOverridesUpdated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, channel_id, overrides]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            channel_id:
+              type: string
+              format: uuid
+            overrides:
+              type: array
+              description: Un elemento por rol que tiene override en el canal. Vacío si no queda ninguno, nunca null.
+              items:
+                type: object
+                required: [role_id, allow, deny]
+                properties:
+                  role_id:
+                    type: string
+                    format: uuid
+                  allow:
+                    type: array
+                    description: Permisos que el rol gana en este canal. Nunca coincide con `deny`.
+                    uniqueItems: true
+                    items:
+                      $ref: '#/components/schemas/ChannelPermission'
+                  deny:
+                    type: array
+                    description: Permisos que el rol pierde en este canal.
+                    uniqueItems: true
+                    items:
+                      $ref: '#/components/schemas/ChannelPermission'
+
+    OwnerUpdated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, owner_id]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            owner_id:
+              type: string
+              description: ID del dueño en discordia-identify.
