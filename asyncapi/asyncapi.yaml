@@ -244,6 +244,20 @@ operations:
       amqp:
         ack: true
 
+  messagingReceiveProfileUpdated:
+    action: receive
+    title: discordia-messaging consume users.profile_updated
+    description: |
+      Cola `messaging.channel_lifecycle`. Guarda `user_id` y `version` de cada
+      usuario para contestar localmente si existe (primer mensaje directo y
+      bloqueos), sin llamar a identify. Aplica la foto solo si su `version` es
+      mayor a la que ya tiene.
+    channel:
+      $ref: '#/channels/profileUpdated'
+    bindings:
+      amqp:
+        ack: true
+
 components:
   channelBindings:
     discordiaEvents:
