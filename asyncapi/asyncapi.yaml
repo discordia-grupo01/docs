@@ -121,6 +121,16 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  wordFilterUpdated:
+    address: servers.word_filter_updated
+    title: servers.word_filter_updated
+    description: Cambió la lista de palabras prohibidas de un servidor. Es la lista completa (vacía si se borraron todas), no un diff; el consumidor se queda con la de occurred_at más nuevo.
+    messages:
+      wordFilterUpdated:
+        $ref: '#/components/messages/WordFilterUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
   profileUpdated:
     address: users.profile_updated
     title: users.profile_updated
@@ -198,6 +208,15 @@ operations:
     title: discordia-servers publica servers.member_unmuted
     channel:
       $ref: '#/channels/memberUnmuted'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishWordFilterUpdated:
+    action: send
+    title: discordia-servers publica servers.word_filter_updated
+    channel:
+      $ref: '#/channels/wordFilterUpdated'
     bindings:
       amqp:
         deliveryMode: 2
@@ -346,6 +365,18 @@ components:
       payload:
         $ref: '#/components/schemas/MemberUnmuted'
 
+    WordFilterUpdated:
+      name: WordFilterUpdated
+      title: Lista de palabras prohibidas actualizada
+      payload:
+        $ref: '#/components/schemas/WordFilterUpdated'
+      examples:
+        - payload:
+            event_id: 5b8e2c4a-7d1f-4e3b-9a6c-2f8d4b1e7a3c
+            occurred_at: '2026-10-10T18:00:00Z'
+            server_id: 3ebead84-ec8c-4fc5-9bfa-09d4301e768f
+            words: [tonto, no sirve]
+
     ProfileUpdated:
       name: ProfileUpdated
       title: Perfil de usuario actualizado
@@ -462,6 +493,18 @@ components:
             muted_by: {type: string}
             until_at: {type: string, format: date-time}
             reason: {type: string}
+
+    WordFilterUpdated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, words]
+          properties:
+            server_id: {type: string, format: uuid}
+            words:
+              type: array
+              description: Palabras o frases prohibidas, normalizadas (minúsculas, sin espacios de más). Lista vacía = sin filtro.
+              items: {type: string}
 
     MemberUnmuted:
       allOf:
