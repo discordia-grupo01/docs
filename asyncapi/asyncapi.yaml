@@ -148,6 +148,26 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  voiceParticipantJoined:
+    address: voice.participant_joined
+    title: voice.participant_joined
+    description: Un participante autorizado se conectó a un canal de voz.
+    messages:
+      voiceParticipantJoined:
+        $ref: '#/components/messages/VoiceParticipantJoined'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  voiceParticipantLeft:
+    address: voice.participant_left
+    title: voice.participant_left
+    description: Un participante dejó un canal de voz.
+    messages:
+      voiceParticipantLeft:
+        $ref: '#/components/messages/VoiceParticipantLeft'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
 operations:
   publishMemberJoined:
     action: send
@@ -226,6 +246,24 @@ operations:
     title: discordia-identify publica users.profile_updated
     channel:
       $ref: '#/channels/profileUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishVoiceParticipantJoined:
+    action: send
+    title: voice-sfu publica voice.participant_joined
+    channel:
+      $ref: '#/channels/voiceParticipantJoined'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishVoiceParticipantLeft:
+    action: send
+    title: voice-sfu publica voice.participant_left
+    channel:
+      $ref: '#/channels/voiceParticipantLeft'
     bindings:
       amqp:
         deliveryMode: 2
@@ -546,3 +584,23 @@ components:
             status_emoji:
               type: string
               description: Emoji del estado personalizado, o vacío si no tiene.
+
+    VoiceParticipantJoined:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - $ref: '#/components/schemas/VoiceParticipant'
+
+    VoiceParticipantLeft:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - $ref: '#/components/schemas/VoiceParticipant'
+
+    VoiceParticipant:
+      type: object
+      required: [event_type, server_id, room_id, participant_id, name]
+      properties:
+        event_type: {type: string, enum: [voice.participant_joined, voice.participant_left]}
+        server_id: {type: string, format: uuid}
+        room_id: {type: string, format: uuid}
+        participant_id: {type: string}
+        name: {type: string}
