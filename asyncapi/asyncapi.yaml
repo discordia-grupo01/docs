@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 
 info:
   title: Discordia — Event Bus
-  version: 0.3.0
+  version: 0.4.0
   description: |
     Eventos de dominio que viajan por RabbitMQ entre los servicios de
     Discordia (ADR-07).
@@ -148,6 +148,45 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  accountRegistered:
+    address: users.account_registered
+    title: users.account_registered
+    description: |
+      Se creó una cuenta. identify lo publica una sola vez por usuario (registro
+      con email o alta por OAuth), con los datos de la cuenta que no son perfil
+      público: `email`, `name` y `created_at`. Existe únicamente para el
+      listado del backoffice (HU #31, `admin`), que tiene que buscar usuarios
+      por email; por eso es la excepción a "el email no viaja nunca" de
+      `users.profile_updated`, y ningún otro servicio debería consumirlo.
+      `email` y `created_at` no cambian, así que no lleva `version`: aplicarlo
+      dos veces deja los mismos valores. Para las cuentas que ya existían,
+      identify re-publica uno por usuario con una migración (backfill).
+    messages:
+      accountRegistered:
+        $ref: '#/components/messages/AccountRegistered'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  voiceParticipantJoined:
+    address: voice.participant_joined
+    title: voice.participant_joined
+    description: Un participante autorizado se conectó a un canal de voz.
+    messages:
+      voiceParticipantJoined:
+        $ref: '#/components/messages/VoiceParticipantJoined'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  voiceParticipantLeft:
+    address: voice.participant_left
+    title: voice.participant_left
+    description: Un participante dejó un canal de voz.
+    messages:
+      voiceParticipantLeft:
+        $ref: '#/components/messages/VoiceParticipantLeft'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
 operations:
   publishMemberJoined:
     action: send
@@ -230,6 +269,33 @@ operations:
       amqp:
         deliveryMode: 2
 
+  publishAccountRegistered:
+    action: send
+    title: discordia-identify publica users.account_registered
+    channel:
+      $ref: '#/channels/accountRegistered'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishVoiceParticipantJoined:
+    action: send
+    title: voice-sfu publica voice.participant_joined
+    channel:
+      $ref: '#/channels/voiceParticipantJoined'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishVoiceParticipantLeft:
+    action: send
+    title: voice-sfu publica voice.participant_left
+    channel:
+      $ref: '#/channels/voiceParticipantLeft'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
   identifyReceiveMemberJoined:
     action: receive
     title: discordia-identify consume servers.member_joined
@@ -273,6 +339,52 @@ operations:
       mayor a la que ya tiene.
     channel:
       $ref: '#/channels/profileUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  adminReceiveAccountRegistered:
+    action: receive
+    title: discordia-admin consume users.account_registered
+    description: |
+      Cola `admin.users`. Da de alta al usuario en la réplica `users` del
+      backoffice con su email, nombre y fecha de registro. Un usuario no
+      aparece en el listado hasta recibir este evento.
+    channel:
+      $ref: '#/channels/accountRegistered'
+    bindings:
+      amqp:
+        ack: true
+
+  adminReceiveProfileUpdated:
+    action: receive
+    title: discordia-admin consume users.profile_updated
+    description: |
+      Cola `admin.users`. Mantiene actualizado el nombre del usuario en el
+      listado del backoffice. Aplica la foto solo si su `version` es mayor a la
+      que ya tiene.
+    channel:
+      $ref: '#/channels/profileUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  adminReceiveMemberJoined:
+    action: receive
+    title: discordia-admin consume servers.member_joined
+    description: Cola `admin.servers`. Suma un miembro al conteo del listado de servidores (HU #32).
+    channel:
+      $ref: '#/channels/memberJoined'
+    bindings:
+      amqp:
+        ack: true
+
+  adminReceiveMemberLeft:
+    action: receive
+    title: discordia-admin consume servers.member_left
+    description: Cola `admin.servers`. Resta un miembro del conteo del listado de servidores (HU #32).
+    channel:
+      $ref: '#/channels/memberLeft'
     bindings:
       amqp:
         ack: true
@@ -393,6 +505,20 @@ components:
             description: Estudiante de FIUBA
             status_text: Jugando
             status_emoji: 🎮
+
+    AccountRegistered:
+      name: AccountRegistered
+      title: Cuenta creada
+      payload:
+        $ref: '#/components/schemas/AccountRegistered'
+      examples:
+        - payload:
+            event_id: 6f7a8b9c-0d1e-4f2a-9b3c-5d6e7f8a9b0c
+            occurred_at: '2026-09-26T14:30:00Z'
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            email: manu@example.com
+            name: Manu
+            created_at: '2026-09-26T14:30:00Z'
 
   schemas:
     Meta:
@@ -546,3 +672,45 @@ components:
             status_emoji:
               type: string
               description: Emoji del estado personalizado, o vacío si no tiene.
+
+    AccountRegistered:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [user_id, email, name, created_at]
+          properties:
+            user_id:
+              type: string
+              format: uuid
+              description: ID del usuario en discordia-identify.
+            email:
+              type: string
+              format: email
+              description: Email de la cuenta. Dato privado; solo para el backoffice.
+            name:
+              type: string
+              description: Nombre al momento del registro (los cambios posteriores viajan en `users.profile_updated`).
+            created_at:
+              type: string
+              format: date-time
+              description: Fecha de registro de la cuenta, ISO 8601 en UTC.
+
+    VoiceParticipantJoined:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - $ref: '#/components/schemas/VoiceParticipant'
+
+    VoiceParticipantLeft:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - $ref: '#/components/schemas/VoiceParticipant'
+
+    VoiceParticipant:
+      type: object
+      required: [event_type, server_id, room_id, participant_id, name]
+      properties:
+        event_type: {type: string, enum: [voice.participant_joined, voice.participant_left]}
+        server_id: {type: string, format: uuid}
+        room_id: {type: string, format: uuid}
+        participant_id: {type: string}
+        name: {type: string}

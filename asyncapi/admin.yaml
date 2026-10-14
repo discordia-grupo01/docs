@@ -1,0 +1,292 @@
+asyncapi: 3.0.0
+
+info:
+  title: Discordia — Admin events
+  version: 0.1.0
+  description: |
+    Eventos que `admin` (el backend del backoffice) publica cuando el staff de
+    la plataforma suspende o reactiva una cuenta (HU #29 y #30). Documento
+    aparte de `asyncapi.yaml` porque es un dominio distinto -- ver `README.md`
+    para el índice completo.
+
+    - Exchange `discordia.events`, tipo `topic`, durable (el mismo que usa el
+      resto del bus).
+    - Routing key `admin.<acción en pasado>`.
+    - Mensajes `application/json`, persistentes (`delivery_mode = 2`).
+    - Garantía at-least-once: `admin` usa outbox transaccional y escribe el
+      evento en la misma transacción que el cambio de estado de la cuenta.
+    - Una cola durable por servicio consumidor, con ack manual.
+
+    **Qué provoca una suspensión.** Un usuario suspendido no puede hacer
+    nada en la plataforma. Cada servicio que atiende usuarios consume estos
+    eventos, guarda localmente quién está suspendido y rechaza (`403
+    ACCOUNT_SUSPENDED`) toda acción del usuario, aunque su access token siga
+    vigente:
+
+    - `identify`: revoca todos sus refresh tokens y rechaza login y refresh.
+    - `servers`: rechaza cualquier acción y oculta su perfil en los miembros.
+    - `messaging`: rechaza enviar, editar, reaccionar, adjuntar y mandar DMs,
+      niega tickets de socket y cierra sus sockets abiertos.
+    - `voice`: niega el token de voz y lo saca de la sala si está conectado.
+
+    **Orden y repeticiones.** `version` crece con cada suspensión o
+    reactivación del mismo usuario (es el `suspension_version` de admin). El
+    consumidor aplica un evento solo si su `version` es mayor a la que ya
+    tiene: uno repetido o fuera de orden es inofensivo. El motivo de la
+    suspensión no viaja (minimización de datos).
+
+    **Firma.** Estos son los únicos eventos firmados: una suspensión falsa
+    dejaría a cualquiera sin acceso, y RabbitMQ no impide que otro cliente con
+    credenciales del broker publique una routing key `admin.*`. `admin` y cada
+    consumidor comparten el secreto `ADMIN_EVENTS_HMAC_SECRET`.
+
+    - `signature` = hex(HMAC-SHA256(secreto, texto)), donde `texto` es la
+      concatenación, separada por saltos de línea (`\n`), de: routing key,
+      `event_id`, `user_id`, `version` (decimal) y `occurred_at` (ISO 8601 en
+      UTC con `RFC3339Nano`, es decir sin ceros finales en los nanosegundos).
+    - Incluir la routing key evita reusar una firma de suspensión como si fuera
+      de reactivación.
+    - El consumidor verifica la firma **antes** de tocar nada, con comparación
+      de tiempo constante. Si falta, no es hex o no coincide, descarta el
+      evento (ack, sin reencolar) y lo registra. Un secreto vacío nunca
+      verifica.
+    - `events-contract` (`admin/events.go`) trae `Sign` y `Verify`: usarlos en
+      vez de reimplementar el algoritmo.
+
+    **Arranque de un consumidor nuevo.** RabbitMQ no guarda lo publicado antes
+    de que existiera su cola. `admin` incluye un comando que re-publica un
+    `admin.user_suspended` (con la `version` vigente) por cada usuario
+    suspendido; se corre después de desplegar un consumidor nuevo.
+
+    Este documento es la fuente de verdad del schema. Las implementaciones
+    viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract)
+    (`admin/events.go`): un cambio de schema se hace primero acá y después se
+    replica allá.
+
+servers:
+  rabbitmq:
+    host: '{host}'
+    protocol: amqp
+    description: Broker RabbitMQ (local vía docker-compose; en la nube, CloudAMQP).
+    variables:
+      host:
+        default: localhost:5672
+
+defaultContentType: application/json
+
+channels:
+  userSuspended:
+    address: admin.user_suspended
+    title: admin.user_suspended
+    description: |
+      El staff suspendió una cuenta (HU #29). Se publica en la misma
+      transacción que el cambio de estado en `admin`. No se puede suspender a
+      un miembro del staff.
+    messages:
+      userSuspended:
+        $ref: '#/components/messages/UserSuspended'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  userReactivated:
+    address: admin.user_reactivated
+    title: admin.user_reactivated
+    description: |
+      El staff levantó la suspensión de una cuenta (HU #30). El usuario vuelve a
+      poder iniciar sesión y actuar con normalidad, y su perfil público vuelve a
+      estar disponible.
+    messages:
+      userReactivated:
+        $ref: '#/components/messages/UserReactivated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+operations:
+  publishUserSuspended:
+    action: send
+    title: discordia-admin publica admin.user_suspended
+    channel:
+      $ref: '#/channels/userSuspended'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishUserReactivated:
+    action: send
+    title: discordia-admin publica admin.user_reactivated
+    channel:
+      $ref: '#/channels/userReactivated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  identifyReceiveUserSuspended:
+    action: receive
+    title: discordia-identify consume admin.user_suspended
+    description: |
+      Cola `identify.user_suspension`. Marca la cuenta como suspendida y revoca
+      todos sus refresh tokens (`RevokeAllForUser`). Desde ese momento rechaza
+      login, refresh y cualquier request autenticado, y oculta el perfil
+      público. Verifica la firma y aplica el evento solo si su `version` es
+      mayor a la guardada.
+    channel:
+      $ref: '#/channels/userSuspended'
+    bindings:
+      amqp:
+        ack: true
+
+  identifyReceiveUserReactivated:
+    action: receive
+    title: discordia-identify consume admin.user_reactivated
+    description: Cola `identify.user_suspension`. Levanta la suspensión (misma regla de firma y `version`).
+    channel:
+      $ref: '#/channels/userReactivated'
+    bindings:
+      amqp:
+        ack: true
+
+  serversReceiveUserSuspended:
+    action: receive
+    title: discordia-servers consume admin.user_suspended
+    description: |
+      Cola `servers.user_suspension`. Guarda al usuario en `suspended_users` y
+      rechaza toda acción suya; en `GET /members` su perfil sale vacío.
+    channel:
+      $ref: '#/channels/userSuspended'
+    bindings:
+      amqp:
+        ack: true
+
+  serversReceiveUserReactivated:
+    action: receive
+    title: discordia-servers consume admin.user_reactivated
+    description: Cola `servers.user_suspension`. Saca al usuario de `suspended_users`.
+    channel:
+      $ref: '#/channels/userReactivated'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveUserSuspended:
+    action: receive
+    title: discordia-messaging consume admin.user_suspended
+    description: |
+      Cola `messaging.user_suspension`. Rechaza todo lo que haga el usuario,
+      niega `POST /v1/socket-tickets` y cierra sus sockets abiertos.
+    channel:
+      $ref: '#/channels/userSuspended'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveUserReactivated:
+    action: receive
+    title: discordia-messaging consume admin.user_reactivated
+    description: Cola `messaging.user_suspension`. Vuelve a permitir al usuario.
+    channel:
+      $ref: '#/channels/userReactivated'
+    bindings:
+      amqp:
+        ack: true
+
+  voiceReceiveUserSuspended:
+    action: receive
+    title: discordia-voice-sfu consume admin.user_suspended
+    description: Cola `voice.user_suspension`. Niega el token de voz y saca al usuario de la sala si está conectado.
+    channel:
+      $ref: '#/channels/userSuspended'
+    bindings:
+      amqp:
+        ack: true
+
+  voiceReceiveUserReactivated:
+    action: receive
+    title: discordia-voice-sfu consume admin.user_reactivated
+    description: Cola `voice.user_suspension`. Vuelve a permitir al usuario conectarse a voz.
+    channel:
+      $ref: '#/channels/userReactivated'
+    bindings:
+      amqp:
+        ack: true
+
+components:
+  channelBindings:
+    discordiaEvents:
+      amqp:
+        is: routingKey
+        exchange:
+          name: discordia.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+
+  messages:
+    UserSuspended:
+      name: UserSuspended
+      title: Cuenta suspendida
+      payload:
+        $ref: '#/components/schemas/UserSuspended'
+      # Las firmas de los ejemplos son ilustrativas (no verifican con ningún secreto real).
+      examples:
+        - payload:
+            event_id: 7a8b9c0d-1e2f-4a3b-8c4d-6e7f8a9b0c1d
+            occurred_at: '2026-11-02T15:20:10.123456Z'
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            version: 1
+            signature: 9f2b0c4e7a1d3b5f8e6a2c4d0b7e9f1a3c5d7e9b1f3a5c7d9e1b3f5a7c9d1e3b
+
+    UserReactivated:
+      name: UserReactivated
+      title: Cuenta reactivada
+      payload:
+        $ref: '#/components/schemas/UserReactivated'
+      examples:
+        - payload:
+            event_id: 8b9c0d1e-2f3a-4b4c-9d5e-7f8a9b0c1d2e
+            occurred_at: '2026-11-03T09:00:00Z'
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            version: 2
+            signature: 1e3b5f7a9c1d3e5b7f9a1c3d5e7b9f1a3c5d7e9b1f3a5c7d9e1b3f5a7c9d1e3b
+
+  schemas:
+    Meta:
+      type: object
+      description: Campos comunes a todo evento (`envelope.Meta` en events-contract).
+      required: [event_id, occurred_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+
+    SuspensionEvent:
+      type: object
+      required: [user_id, version, signature]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: Usuario suspendido o reactivado (ID de discordia-identify).
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: suspension_version del usuario en admin. Crece con cada suspensión o reactivación; ordena los eventos del mismo usuario.
+        signature:
+          type: string
+          description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
+
+    UserSuspended:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - $ref: '#/components/schemas/SuspensionEvent'
+
+    UserReactivated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - $ref: '#/components/schemas/SuspensionEvent'
