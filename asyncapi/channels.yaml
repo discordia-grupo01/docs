@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 
 info:
   title: Discordia — Channels events
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Eventos del dominio de canales que viajan por RabbitMQ entre `servers`
     (publisher) y `messaging` / `voice-sfu` (consumidores). Documento aparte de
@@ -76,6 +76,25 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  serverUpdated:
+    address: servers.server_updated
+    title: servers.server_updated
+    description: |
+      Foto completa de un servidor (nombre, dueño y fecha de creación), no un
+      diff. `servers` la publica al crear el servidor y en cada cambio de nombre
+      o de dueño. No lleva `version`: el consumidor se queda con la foto de
+      `occurred_at` más nueva de cada servidor, así que un evento repetido o
+      fuera de orden no pisa datos más recientes (misma regla que los eventos
+      de `permissions.yaml`). Hoy la consume `admin` para armar el listado de
+      servidores del backoffice (HU #32) sin consultar a `servers`. `servers`
+      re-publica todos los servidores existentes con una migración (backfill)
+      cuando se suma un consumidor.
+    messages:
+      serverUpdated:
+        $ref: '#/components/messages/ServerUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
   channelAccessRevoked:
     address: servers.channel_access_revoked
     title: servers.channel_access_revoked
@@ -129,6 +148,15 @@ operations:
     title: discordia-servers publica servers.server_deleted
     channel:
       $ref: '#/channels/serverDeleted'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishServerUpdated:
+    action: send
+    title: discordia-servers publica servers.server_updated
+    channel:
+      $ref: '#/channels/serverUpdated'
     bindings:
       amqp:
         deliveryMode: 2
@@ -216,6 +244,29 @@ operations:
       amqp:
         ack: true
 
+  adminReceiveServerUpdated:
+    action: receive
+    title: discordia-admin consume servers.server_updated
+    description: |
+      Cola `admin.servers`. Mantiene la réplica `servers` del backoffice
+      (nombre, dueño, fecha de creación) para el listado de servidores.
+      Aplica la foto solo si su `occurred_at` es más nuevo que el guardado.
+    channel:
+      $ref: '#/channels/serverUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  adminReceiveServerDeleted:
+    action: receive
+    title: discordia-admin consume servers.server_deleted
+    description: Cola `admin.servers`. Borra el servidor y sus membresías de la réplica del backoffice.
+    channel:
+      $ref: '#/channels/serverDeleted'
+    bindings:
+      amqp:
+        ack: true
+
 components:
   channelBindings:
     discordiaEvents:
@@ -268,6 +319,20 @@ components:
             channel_ids:
               - 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
               - 7e6d5c4b-3a2f-4b1c-8d9e-8f7a6b5c4d3e
+
+    ServerUpdated:
+      name: ServerUpdated
+      title: Servidor creado o actualizado
+      payload:
+        $ref: '#/components/schemas/ServerUpdated'
+      examples:
+        - payload:
+            event_id: 5e6f7a8b-9c0d-4e1f-8a2b-4c5d6e7f8a9b
+            occurred_at: '2026-10-14T18:00:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            name: Mi comunidad
+            owner_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            created_at: '2026-09-26T14:30:00Z'
 
     ChannelAccessRevoked:
       name: ChannelAccessRevoked
@@ -344,6 +409,25 @@ components:
               items:
                 type: string
                 format: uuid
+
+    ServerUpdated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, name, owner_id, created_at]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            owner_id:
+              type: string
+              description: ID del dueño del servidor (emitido por discordia-identify).
+            created_at:
+              type: string
+              format: date-time
+              description: Fecha de creación del servidor, ISO 8601 en UTC. No cambia entre fotos.
 
     ChannelAccessRevoked:
       allOf:
