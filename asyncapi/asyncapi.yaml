@@ -389,6 +389,26 @@ operations:
       amqp:
         ack: true
 
+  notificationsReceiveMemberJoined:
+    action: receive
+    title: discordia-notifications consume servers.member_joined
+    description: Cola `notifications.unread_state`. Guarda desde cuándo es miembro (lo que se escribió antes no cuenta como no leído).
+    channel:
+      $ref: '#/channels/memberJoined'
+    bindings:
+      amqp:
+        ack: true
+
+  notificationsReceiveMemberLeft:
+    action: receive
+    title: discordia-notifications consume servers.member_left
+    description: Cola `notifications.unread_state`. Borra la membresía y sus marcas de lectura del servidor.
+    channel:
+      $ref: '#/channels/memberLeft'
+    bindings:
+      amqp:
+        ack: true
+
 components:
   channelBindings:
     discordiaEvents:

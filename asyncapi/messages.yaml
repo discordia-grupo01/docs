@@ -1,0 +1,155 @@
+asyncapi: 3.0.0
+
+info:
+  title: Discordia — Messages events
+  version: 0.1.0
+  description: |
+    Eventos de actividad de mensajería que `messaging` (publisher) le avisa a
+    `notifications` (consumidor), para que arme los indicadores de no leído sin
+    llamar a `messaging` por HTTP. Documento aparte de los demás porque es otro
+    dominio con su propio ciclo de vida -- ver `README.md` para el índice
+    completo.
+
+    - Exchange `discordia.events`, tipo `topic`, durable (el mismo que usan los
+      demás dominios -- un único exchange para todo el bus de eventos).
+    - Routing key `<servicio>.<acción en pasado>` (`messaging.message_created`).
+    - Mensajes `application/json`, persistentes (`delivery_mode = 2`).
+    - Garantía at-least-once: el publisher usa outbox transaccional y el
+      consumidor debe ser **idempotente** (deduplicar por `event_id` o por
+      `message_id`) y tolerar **desorden**. No hay replay nativo.
+    - Una cola durable por servicio consumidor, con ack manual.
+    - **El evento no lleva el texto del mensaje**: solo ids. El consumidor no
+      necesita el contenido y no debe pedirlo.
+
+    Este documento es la fuente de verdad del schema. Las implementaciones
+    viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract)
+    (`messages/events.go` y `messages/events.ex`): un cambio de schema se hace
+    primero acá y después se replica allá.
+
+servers:
+  rabbitmq:
+    host: '{host}'
+    protocol: amqp
+    description: Broker RabbitMQ (local vía docker-compose; en la nube, CloudAMQP).
+    variables:
+      host:
+        default: localhost:5672
+
+defaultContentType: application/json
+
+channels:
+  messageCreated:
+    address: messaging.message_created
+    title: messaging.message_created
+    description: |
+      Se creó un mensaje en un canal de texto de un servidor. **No se publica
+      para mensajes directos** (DM): no pertenecen a ningún servidor y el
+      estado de lectura de una conversación lo lleva `messaging`.
+
+      `mentioned_user_ids` son los usuarios a los que el mensaje menciona **y
+      que `messaging` ya validó** con las reglas de menciones (miembros que
+      pueden ver el canal, y los roles o `@everyone` solo si el autor tiene
+      `MENTION_EVERYONE`), sin el autor. Está vacío si el mensaje no menciona
+      a nadie. Cuando se menciona a un rol o a todos, la lista ya viene
+      resuelta: el consumidor no tiene que resolverla.
+
+      Como el id del mensaje es un UUID v7 (ordenable por tiempo), un
+      consumidor puede quedarse con el id más grande por canal y no depende
+      del orden de llegada ni de los repetidos.
+    messages:
+      messageCreated:
+        $ref: '#/components/messages/MessageCreated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+operations:
+  publishMessageCreated:
+    action: send
+    title: discordia-messaging publica messaging.message_created
+    channel:
+      $ref: '#/channels/messageCreated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  notificationsReceiveMessageCreated:
+    action: receive
+    title: discordia-notifications consume messaging.message_created
+    description: |
+      Cola `notifications.unread_state`. Guarda el último mensaje del canal,
+      marca como leído para el autor y guarda la mención de cada usuario
+      mencionado.
+    channel:
+      $ref: '#/channels/messageCreated'
+    bindings:
+      amqp:
+        ack: true
+
+components:
+  channelBindings:
+    discordiaEvents:
+      amqp:
+        is: routingKey
+        exchange:
+          name: discordia.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+
+  messages:
+    MessageCreated:
+      name: MessageCreated
+      title: Mensaje creado
+      payload:
+        $ref: '#/components/schemas/MessageCreated'
+      examples:
+        - payload:
+            event_id: 7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f
+            occurred_at: '2026-10-24T15:00:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            channel_id: 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
+            message_id: 01a1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5b
+            author_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
+            mentioned_user_ids:
+              - 8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
+
+  schemas:
+    Meta:
+      type: object
+      required: [event_id, occurred_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio (cuándo se creó el mensaje), ISO 8601 en UTC.
+
+    MessageCreated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, channel_id, message_id, author_id, mentioned_user_ids]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            channel_id:
+              type: string
+              format: uuid
+            message_id:
+              type: string
+              format: uuid
+              description: UUID v7 del mensaje, ordenable por tiempo de creación.
+            author_id:
+              type: string
+              format: uuid
+            mentioned_user_ids:
+              type: array
+              description: Usuarios mencionados y ya validados por `messaging`, sin el autor. Puede ser una lista vacía.
+              items:
+                type: string
+                format: uuid

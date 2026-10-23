@@ -208,6 +208,56 @@ operations:
       amqp:
         ack: true
 
+  notificationsReceiveRoleUpdated:
+    action: receive
+    title: discordia-notifications consume servers.role_updated
+    description: Cola `notifications.unread_state`. Guarda los permisos del rol si la foto es la más nueva.
+    channel:
+      $ref: '#/channels/roleUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  notificationsReceiveRoleDeleted:
+    action: receive
+    title: discordia-notifications consume servers.role_deleted
+    description: Cola `notifications.unread_state`. Borra el rol y lo saca de los miembros y de los overrides.
+    channel:
+      $ref: '#/channels/roleDeleted'
+    bindings:
+      amqp:
+        ack: true
+
+  notificationsReceiveMemberRolesUpdated:
+    action: receive
+    title: discordia-notifications consume servers.member_roles_updated
+    description: Cola `notifications.unread_state`. Guarda los roles del miembro si la foto es la más nueva.
+    channel:
+      $ref: '#/channels/memberRolesUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  notificationsReceiveChannelOverridesUpdated:
+    action: receive
+    title: discordia-notifications consume servers.channel_overrides_updated
+    description: Cola `notifications.unread_state`. Guarda los overrides del canal si la foto es la más nueva.
+    channel:
+      $ref: '#/channels/channelOverridesUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  notificationsReceiveOwnerUpdated:
+    action: receive
+    title: discordia-notifications consume servers.owner_updated
+    description: Cola `notifications.unread_state`. Guarda el dueño si la foto es la más nueva.
+    channel:
+      $ref: '#/channels/ownerUpdated'
+    bindings:
+      amqp:
+        ack: true
+
 components:
   channelBindings:
     discordiaEvents:
