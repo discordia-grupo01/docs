@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 
 info:
   title: Discordia — Event Bus
-  version: 0.4.0
+  version: 0.5.0
   description: |
     Eventos de dominio que viajan por RabbitMQ entre los servicios de
     Discordia (ADR-07).
@@ -154,16 +154,41 @@ channels:
     description: |
       Se creó una cuenta. identify lo publica una sola vez por usuario (registro
       con email o alta por OAuth), con los datos de la cuenta que no son perfil
-      público: `email`, `name` y `created_at`. Existe únicamente para el
-      listado del backoffice (HU #31, `admin`), que tiene que buscar usuarios
-      por email; por eso es la excepción a "el email no viaja nunca" de
-      `users.profile_updated`, y ningún otro servicio debería consumirlo.
+      público: `email`, `name`, `created_at` y `email_verified`. Existe
+      únicamente para el listado del backoffice (HU #31, `admin`), que tiene
+      que buscar usuarios por email; por eso es la excepción a "el email no
+      viaja nunca" de `users.profile_updated`, y ningún otro servicio debería
+      consumirlo.
       `email` y `created_at` no cambian, así que no lleva `version`: aplicarlo
       dos veces deja los mismos valores. Para las cuentas que ya existían,
       identify re-publica uno por usuario con una migración (backfill).
+      `email_verified` es `true` en las altas por OAuth (el proveedor ya
+      verificó el email) y `false` en el registro con email, que queda
+      pendiente hasta `users.email_verified`.
     messages:
       accountRegistered:
         $ref: '#/components/messages/AccountRegistered'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  emailVerified:
+    address: users.email_verified
+    title: users.email_verified
+    description: |
+      El usuario confirmó su email. identify lo publica una sola vez por
+      usuario, cuando se aplica el código de confirmación (las altas por OAuth
+      no lo publican: ya nacen verificadas en `users.account_registered`).
+      Igual que `users.account_registered`, existe únicamente para el listado
+      del backoffice (`admin`), que muestra como "pendiente" a quien todavía
+      no confirmó; ningún otro servicio debería consumirlo.
+      La verificación no se deshace, así que no lleva `version`: aplicarlo dos
+      veces deja lo mismo, y puede llegar antes que `users.account_registered`
+      (el consumidor no debe descartarlo por eso). Para las cuentas que ya
+      estaban verificadas, identify re-publica uno por usuario con una
+      migración (backfill).
+    messages:
+      emailVerified:
+        $ref: '#/components/messages/EmailVerified'
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
@@ -278,6 +303,15 @@ operations:
       amqp:
         deliveryMode: 2
 
+  publishEmailVerified:
+    action: send
+    title: discordia-identify publica users.email_verified
+    channel:
+      $ref: '#/channels/emailVerified'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
   publishVoiceParticipantJoined:
     action: send
     title: voice-sfu publica voice.participant_joined
@@ -348,8 +382,10 @@ operations:
     title: discordia-admin consume users.account_registered
     description: |
       Cola `admin.users`. Da de alta al usuario en la réplica `users` del
-      backoffice con su email, nombre y fecha de registro. Un usuario no
-      aparece en el listado hasta recibir este evento.
+      backoffice con su email, nombre, fecha de registro y si ya verificó el
+      email. Un usuario no aparece en el listado hasta recibir este evento, y
+      aparece como "pendiente" mientras su email no esté verificado. Un
+      `email_verified: false` nunca pisa una verificación que ya llegó.
     channel:
       $ref: '#/channels/accountRegistered'
     bindings:
@@ -365,6 +401,21 @@ operations:
       que ya tiene.
     channel:
       $ref: '#/channels/profileUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  adminReceiveEmailVerified:
+    action: receive
+    title: discordia-admin consume users.email_verified
+    description: |
+      Cola `admin.users`. Marca el email del usuario como verificado en la
+      réplica `users` del backoffice: deja de figurar como "pendiente". Si el
+      usuario todavía no está en la réplica, crea la fila igual (sin
+      `registered_at`, así que no aparece en el listado hasta que llegue
+      `users.account_registered`).
+    channel:
+      $ref: '#/channels/emailVerified'
     bindings:
       amqp:
         ack: true
@@ -539,6 +590,19 @@ components:
             email: manu@example.com
             name: Manu
             created_at: '2026-09-26T14:30:00Z'
+            email_verified: false
+
+    EmailVerified:
+      name: EmailVerified
+      title: Email verificado
+      payload:
+        $ref: '#/components/schemas/EmailVerified'
+      examples:
+        - payload:
+            event_id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+            occurred_at: '2026-09-26T14:35:00Z'
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            verified_at: '2026-09-26T14:35:00Z'
 
   schemas:
     Meta:
@@ -714,6 +778,28 @@ components:
               type: string
               format: date-time
               description: Fecha de registro de la cuenta, ISO 8601 en UTC.
+            email_verified:
+              type: boolean
+              description: |
+                Si el email ya estaba verificado al crear la cuenta: `true` en
+                las altas por OAuth, `false` en el registro con email. Los
+                eventos anteriores a la versión 0.5.0 no lo traen: el
+                consumidor lo toma como `false`.
+
+    EmailVerified:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [user_id, verified_at]
+          properties:
+            user_id:
+              type: string
+              format: uuid
+              description: ID del usuario en discordia-identify.
+            verified_at:
+              type: string
+              format: date-time
+              description: Momento en que se confirmó el email, ISO 8601 en UTC.
 
     VoiceParticipantJoined:
       allOf:

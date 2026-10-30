@@ -33,6 +33,7 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `servers.word_filter_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`) | `asyncapi.yaml` |
 | `users.profile_updated` | discordia-identify | discordia-servers, discordia-messaging (cola `messaging.channel_lifecycle`), discordia-admin (cola `admin.users`) | `asyncapi.yaml` |
 | `users.account_registered` | discordia-identify | discordia-admin (cola `admin.users`); lleva el email, no suscribir a otros servicios | `asyncapi.yaml` |
+| `users.email_verified` | discordia-identify | discordia-admin (cola `admin.users`); solo para el estado "pendiente" del backoffice, no suscribir a otros servicios | `asyncapi.yaml` |
 | `servers.channel_created` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
 | `servers.channel_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
 | `servers.server_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`), discordia-admin (cola `admin.servers`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
