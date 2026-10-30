@@ -267,6 +267,36 @@ operations:
       amqp:
         ack: true
 
+  notificationsReceiveChannelCreated:
+    action: receive
+    title: discordia-notifications consume servers.channel_created
+    description: Cola `notifications.unread_state`. Guarda el canal en la réplica para saber a qué servidor pertenece.
+    channel:
+      $ref: '#/channels/channelCreated'
+    bindings:
+      amqp:
+        ack: true
+
+  notificationsReceiveChannelDeleted:
+    action: receive
+    title: discordia-notifications consume servers.channel_deleted
+    description: Cola `notifications.unread_state`. Borra el canal, su actividad y las marcas de lectura.
+    channel:
+      $ref: '#/channels/channelDeleted'
+    bindings:
+      amqp:
+        ack: true
+
+  notificationsReceiveServerDeleted:
+    action: receive
+    title: discordia-notifications consume servers.server_deleted
+    description: Cola `notifications.unread_state`. Borra el servidor, sus canales y las marcas de lectura. Idempotente.
+    channel:
+      $ref: '#/channels/serverDeleted'
+    bindings:
+      amqp:
+        ack: true
+
 components:
   channelBindings:
     discordiaEvents:
