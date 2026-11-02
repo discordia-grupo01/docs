@@ -5,8 +5,8 @@ info:
   version: 0.1.0
   description: |
     Eventos de actividad de mensajería que `messaging` (publisher) le avisa a
-    `notifications` (consumidor), para que arme los indicadores de no leído sin
-    llamar a `messaging` por HTTP. Documento aparte de los demás porque es otro
+    `notifications` (consumidor), para que arme los indicadores de no leído y el
+    historial de notificaciones sin llamar a `messaging` por HTTP. Documento aparte de los demás porque es otro
     dominio con su propio ciclo de vida -- ver `README.md` para el índice
     completo.
 
@@ -44,7 +44,8 @@ channels:
     description: |
       Se creó un mensaje en un canal de texto de un servidor. **No se publica
       para mensajes directos** (DM): no pertenecen a ningún servidor y el
-      estado de lectura de una conversación lo lleva `messaging`.
+      estado de lectura de una conversación lo lleva `messaging`. Para los DM
+      existe `messaging.direct_message_created`.
 
       `mentioned_user_ids` son los usuarios a los que el mensaje menciona **y
       que `messaging` ya validó** con las reglas de menciones (miembros que
@@ -59,6 +60,28 @@ channels:
     messages:
       messageCreated:
         $ref: '#/components/messages/MessageCreated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  directMessageCreated:
+    address: messaging.direct_message_created
+    title: messaging.direct_message_created
+    description: |
+      Se creó un mensaje directo (DM) entre dos usuarios. No pertenece a ningún
+      servidor: se identifica por la conversación.
+
+      `recipient_id` es el otro participante de la conversación (no el autor).
+      Un DM no se publica si el envío fue rechazado (por ejemplo, por un
+      bloqueo): el evento sale en la misma transacción que el mensaje.
+
+      Sirve para el historial de notificaciones. No reemplaza al estado de
+      lectura de las conversaciones, que sigue llevando `messaging`.
+
+      Como el id del mensaje es un UUID v7 (ordenable por tiempo), el consumidor
+      no depende del orden de llegada ni de los repetidos.
+    messages:
+      directMessageCreated:
+        $ref: '#/components/messages/DirectMessageCreated'
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
@@ -78,9 +101,34 @@ operations:
     description: |
       Cola `notifications.unread_state`. Guarda el último mensaje del canal,
       marca como leído para el autor y guarda la mención de cada usuario
-      mencionado.
+      mencionado. Además agrega una entrada al historial de notificaciones de
+      cada usuario mencionado al que la mención le avisa según sus
+      preferencias (no la guarda si silenció el canal o el servidor, o lo puso
+      en `none`).
     channel:
       $ref: '#/channels/messageCreated'
+    bindings:
+      amqp:
+        ack: true
+
+  publishDirectMessageCreated:
+    action: send
+    title: discordia-messaging publica messaging.direct_message_created
+    channel:
+      $ref: '#/channels/directMessageCreated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  notificationsReceiveDirectMessageCreated:
+    action: receive
+    title: discordia-notifications consume messaging.direct_message_created
+    description: |
+      Cola `notifications.unread_state`. Agrega una entrada al historial de
+      notificaciones del destinatario. Es idempotente: la entrada se identifica
+      por usuario y mensaje.
+    channel:
+      $ref: '#/channels/directMessageCreated'
     bindings:
       amqp:
         ack: true
@@ -113,6 +161,20 @@ components:
             author_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
             mentioned_user_ids:
               - 8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
+
+    DirectMessageCreated:
+      name: DirectMessageCreated
+      title: Mensaje directo creado
+      payload:
+        $ref: '#/components/schemas/DirectMessageCreated'
+      examples:
+        - payload:
+            event_id: 5e4d3c2b-1a09-4f8e-9d7c-6b5a4f3e2d1c
+            occurred_at: '2026-10-31T15:00:00Z'
+            conversation_id: 2c1b0a9f-8e7d-4c6b-a594-83726150f4e3
+            message_id: 01a1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5c
+            author_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
+            recipient_id: 8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
 
   schemas:
     Meta:
@@ -153,3 +215,23 @@ components:
               items:
                 type: string
                 format: uuid
+
+    DirectMessageCreated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [conversation_id, message_id, author_id, recipient_id]
+          properties:
+            conversation_id:
+              type: string
+              description: Id de la conversación (determinístico a partir de los dos participantes).
+            message_id:
+              type: string
+              format: uuid
+              description: UUID v7 del mensaje, ordenable por tiempo de creación.
+            author_id:
+              type: string
+              description: Quien escribió el mensaje.
+            recipient_id:
+              type: string
+              description: El otro participante de la conversación.

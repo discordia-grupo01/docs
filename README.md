@@ -10,7 +10,7 @@ decisiones de arquitectura.
 | [`asyncapi/asyncapi.yaml`](asyncapi/asyncapi.yaml) | Dominio membership (altas/bajas/bans de miembros de un servidor). |
 | [`asyncapi/channels.yaml`](asyncapi/channels.yaml) | Dominio channels (alta/baja de canales), consumido por `messaging`. |
 | [`asyncapi/permissions.yaml`](asyncapi/permissions.yaml) | Dominio permissions (roles, roles de cada miembro, overrides por canal y dueño del servidor), que `messaging` replica para autorizar sin consultar a `servers`. |
-| [`asyncapi/messages.yaml`](asyncapi/messages.yaml) | Dominio messages (actividad de mensajería: mensaje creado, sin su texto), que `messaging` publica y `notifications` consume para los indicadores de no leído. |
+| [`asyncapi/messages.yaml`](asyncapi/messages.yaml) | Dominio messages (actividad de mensajería: mensaje creado en un canal y mensaje directo creado, sin su texto), que `messaging` publica y `notifications` consume para los indicadores de no leído y el historial de notificaciones. |
 | [`asyncapi/admin.yaml`](asyncapi/admin.yaml) | Dominio admin (suspensión y reactivación de cuentas por el staff, eventos firmados con HMAC), que identify, servers, messaging y voz consumen para bloquear al usuario. |
 | [`adr/`](adr/) | Registro de decisiones de arquitectura (ADRs). |
 
