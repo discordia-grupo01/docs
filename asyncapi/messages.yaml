@@ -5,8 +5,9 @@ info:
   version: 0.1.0
   description: |
     Eventos de actividad de mensajería que `messaging` (publisher) le avisa a
-    `notifications` (consumidor), para que arme los indicadores de no leído y el
-    historial de notificaciones sin llamar a `messaging` por HTTP. Documento aparte de los demás porque es otro
+    `notifications` (consumidor), para que arme los indicadores de no leído, el
+    historial de notificaciones y las notificaciones push sin llamar a
+    `messaging` por HTTP. Documento aparte de los demás porque es otro
     dominio con su propio ciclo de vida -- ver `README.md` para el índice
     completo.
 
@@ -18,8 +19,11 @@ info:
       consumidor debe ser **idempotente** (deduplicar por `event_id` o por
       `message_id`) y tolerar **desorden**. No hay replay nativo.
     - Una cola durable por servicio consumidor, con ack manual.
-    - **El evento no lleva el texto del mensaje**: solo ids. El consumidor no
-      necesita el contenido y no debe pedirlo.
+    - **Los eventos llevan ids, con una única excepción**: `content_preview`
+      (y `channel_name`) en `messaging.message_created` y
+      `messaging.direct_message_created`, un extracto de texto opcional que
+      existe solo para armar las notificaciones push. El consumidor lo usa para
+      el aviso y **no debe guardarlo**.
 
     Este documento es la fuente de verdad del schema. Las implementaciones
     viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract)
@@ -57,6 +61,12 @@ channels:
       Como el id del mensaje es un UUID v7 (ordenable por tiempo), un
       consumidor puede quedarse con el id más grande por canal y no depende
       del orden de llegada ni de los repetidos.
+
+      Para las notificaciones push lleva dos datos opcionales: `channel_name`
+      (el nombre del canal) y `content_preview` (el texto del mensaje cortado a
+      unos 140 caracteres, con las menciones reemplazadas por `@usuario` o
+      `@rol`, o "Archivo adjunto" si solo trae archivos). Si no están, el
+      consumidor arma un aviso genérico.
     messages:
       messageCreated:
         $ref: '#/components/messages/MessageCreated'
@@ -79,9 +89,85 @@ channels:
 
       Como el id del mensaje es un UUID v7 (ordenable por tiempo), el consumidor
       no depende del orden de llegada ni de los repetidos.
+
+      Para las notificaciones push lleva `content_preview` (opcional): el texto
+      del mensaje cortado a unos 140 caracteres, con las menciones reemplazadas
+      por `@usuario` o `@rol`, o "Archivo adjunto" si solo trae archivos.
     messages:
       directMessageCreated:
         $ref: '#/components/messages/DirectMessageCreated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  messageUpdated:
+    address: messaging.message_updated
+    title: messaging.message_updated
+    description: |
+      Se editó el texto de un mensaje de un canal de un servidor. Solo se publica
+      si el texto cambió. Los mensajes directos no lo publican: no tienen
+      menciones.
+
+      `mentioned_user_ids` son las menciones que el mensaje tiene **después** de
+      la edición (ya validadas, sin el autor). El consumidor compara con lo que
+      ya tenía: agrega la notificación de quien quedó mencionado y quita la de
+      quien dejó de estarlo. `occurred_at` es el momento de la edición.
+
+      Quien ya había sido avisado del mensaje no vuelve a serlo, y un aviso push
+      ya enviado no se puede retirar.
+
+      Lleva `channel_name` y `content_preview` opcionales, con el mismo sentido
+      que en `messaging.message_created`.
+    messages:
+      messageUpdated:
+        $ref: '#/components/messages/MessageUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  messageDeleted:
+    address: messaging.message_deleted
+    title: messaging.message_deleted
+    description: |
+      Se borró un mensaje, de un canal de un servidor o de una conversación
+      directa. En un mensaje directo `server_id` no viaja y `channel_id` es la
+      conversación. `occurred_at` es el momento del borrado.
+
+      El consumidor descarta todo lo que guardó sobre `message_id`, por ejemplo
+      las entradas del historial de notificaciones. Es idempotente.
+    messages:
+      messageDeleted:
+        $ref: '#/components/messages/MessageDeleted'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  userPresenceChanged:
+    address: messaging.user_presence_changed
+    title: messaging.user_presence_changed
+    description: |
+      Cambió lo que importa para decidir si a un usuario se le manda un push.
+      Se publica cada vez que cambia `connections` o `do_not_disturb`.
+
+      `connections` es el estado **real** de las conexiones del usuario, sumando
+      todas sus instancias y dispositivos, sin importar si se muestra `invisible`
+      a los demás:
+
+      - `active`: al menos una conexión abierta y activa (la app está en uso).
+      - `idle`: tiene conexiones, pero todas inactivas (por ejemplo, una
+        pestaña olvidada).
+      - `none`: ninguna conexión abierta.
+
+      `do_not_disturb` es `true` si eligió "No molestar". Se manda siempre,
+      también cuando es `false`.
+
+      `version` crece con cada cambio del mismo usuario: el consumidor aplica el
+      evento solo si su `version` es mayor a la que ya tiene, así que un evento
+      repetido o fuera de orden es inofensivo. Si el consumidor no tiene datos de
+      un usuario, o están vencidos, debe asumir `none`.
+
+      Un push **no** se envía si el usuario tiene `connections: active` o
+      `do_not_disturb: true`. Con `idle` o `none` sí.
+    messages:
+      userPresenceChanged:
+        $ref: '#/components/messages/UserPresenceChanged'
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
@@ -133,6 +219,72 @@ operations:
       amqp:
         ack: true
 
+  publishMessageUpdated:
+    action: send
+    title: discordia-messaging publica messaging.message_updated
+    channel:
+      $ref: '#/channels/messageUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  notificationsReceiveMessageUpdated:
+    action: receive
+    title: discordia-notifications consume messaging.message_updated
+    description: |
+      Cola `notifications.unread_state`. Agrega la entrada del historial de quien
+      la edición mencionó por primera vez (y le manda un push marcado como
+      editado), y quita la de quien dejó de estar mencionado. No toca a quien
+      ya tenía su entrada.
+    channel:
+      $ref: '#/channels/messageUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  publishMessageDeleted:
+    action: send
+    title: discordia-messaging publica messaging.message_deleted
+    channel:
+      $ref: '#/channels/messageDeleted'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  notificationsReceiveMessageDeleted:
+    action: receive
+    title: discordia-notifications consume messaging.message_deleted
+    description: |
+      Cola `notifications.unread_state`. Borra de los historiales de
+      notificaciones las entradas que apuntan al mensaje.
+    channel:
+      $ref: '#/channels/messageDeleted'
+    bindings:
+      amqp:
+        ack: true
+
+  publishUserPresenceChanged:
+    action: send
+    title: discordia-messaging publica messaging.user_presence_changed
+    channel:
+      $ref: '#/channels/userPresenceChanged'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  notificationsReceiveUserPresenceChanged:
+    action: receive
+    title: discordia-notifications consume messaging.user_presence_changed
+    description: |
+      Guarda una réplica local del estado de conexión de cada usuario, con la
+      regla de `version`, para decidir si manda un push sin preguntarle a
+      `messaging`.
+    channel:
+      $ref: '#/channels/userPresenceChanged'
+    bindings:
+      amqp:
+        ack: true
+
 components:
   channelBindings:
     discordiaEvents:
@@ -161,6 +313,8 @@ components:
             author_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
             mentioned_user_ids:
               - 8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
+            channel_name: general
+            content_preview: 'hola @usuario, ¿viste el anuncio?'
 
     DirectMessageCreated:
       name: DirectMessageCreated
@@ -175,6 +329,53 @@ components:
             message_id: 01a1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5c
             author_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
             recipient_id: 8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
+            content_preview: ¿venís esta noche?
+
+    MessageUpdated:
+      name: MessageUpdated
+      title: Mensaje editado
+      payload:
+        $ref: '#/components/schemas/MessageUpdated'
+      examples:
+        - payload:
+            event_id: 1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d
+            occurred_at: '2026-11-03T16:00:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            channel_id: 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
+            message_id: 01a1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5b
+            author_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
+            mentioned_user_ids:
+              - 8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
+            channel_name: general
+            content_preview: 'hola @usuario, ¿viste el anuncio?'
+
+    MessageDeleted:
+      name: MessageDeleted
+      title: Mensaje borrado
+      payload:
+        $ref: '#/components/schemas/MessageDeleted'
+      examples:
+        - payload:
+            event_id: 2c3d4e5f-6071-4b8c-9d0e-1f2a3b4c5d6e
+            occurred_at: '2026-11-03T17:00:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            channel_id: 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
+            message_id: 01a1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5b
+            author_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
+
+    UserPresenceChanged:
+      name: UserPresenceChanged
+      title: Cambió la presencia de un usuario
+      payload:
+        $ref: '#/components/schemas/UserPresenceChanged'
+      examples:
+        - payload:
+            event_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+            occurred_at: '2026-11-03T15:00:00Z'
+            user_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
+            connections: active
+            do_not_disturb: false
+            version: 12
 
   schemas:
     Meta:
@@ -215,6 +416,13 @@ components:
               items:
                 type: string
                 format: uuid
+            channel_name:
+              type: string
+              description: Nombre del canal. Opcional; solo para armar el aviso push.
+            content_preview:
+              type: string
+              maxLength: 160
+              description: Extracto del texto (unos 140 caracteres), opcional. Solo para armar el aviso push; el consumidor no debe guardarlo.
 
     DirectMessageCreated:
       allOf:
@@ -235,3 +443,80 @@ components:
             recipient_id:
               type: string
               description: El otro participante de la conversación.
+            content_preview:
+              type: string
+              maxLength: 160
+              description: Extracto del texto (unos 140 caracteres), opcional. Solo para armar el aviso push; el consumidor no debe guardarlo.
+
+    MessageUpdated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, channel_id, message_id, author_id, mentioned_user_ids]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            channel_id:
+              type: string
+              format: uuid
+            message_id:
+              type: string
+              format: uuid
+            author_id:
+              type: string
+              format: uuid
+            mentioned_user_ids:
+              type: array
+              description: Menciones que el mensaje tiene después de la edición, ya validadas y sin el autor. Puede ser una lista vacía.
+              items:
+                type: string
+                format: uuid
+            channel_name:
+              type: string
+              description: Nombre del canal. Opcional; solo para armar el aviso push.
+            content_preview:
+              type: string
+              maxLength: 160
+              description: Extracto del texto editado (unos 140 caracteres), opcional. Solo para armar el aviso push; el consumidor no debe guardarlo.
+
+    MessageDeleted:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [channel_id, message_id, author_id]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+              description: Servidor del canal. No viaja si el mensaje era directo.
+            channel_id:
+              type: string
+              description: Canal del mensaje, o la conversación si era un mensaje directo.
+            message_id:
+              type: string
+              format: uuid
+            author_id:
+              type: string
+              format: uuid
+
+    UserPresenceChanged:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [user_id, connections, do_not_disturb, version]
+          properties:
+            user_id:
+              type: string
+              format: uuid
+            connections:
+              type: string
+              enum: [active, idle, none]
+              description: Estado real de las conexiones del usuario, de todas sus instancias y dispositivos.
+            do_not_disturb:
+              type: boolean
+              description: "`true` si el usuario eligió No molestar. Se manda siempre."
+            version:
+              type: integer
+              format: int64
+              description: Crece con cada cambio del mismo usuario. El consumidor aplica el evento solo si es mayor a la que ya tiene.
