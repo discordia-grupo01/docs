@@ -10,7 +10,7 @@ decisiones de arquitectura.
 | [`asyncapi/asyncapi.yaml`](asyncapi/asyncapi.yaml) | Dominio membership (altas/bajas/bans de miembros de un servidor). |
 | [`asyncapi/channels.yaml`](asyncapi/channels.yaml) | Dominio channels (alta/baja de canales), consumido por `messaging`. |
 | [`asyncapi/permissions.yaml`](asyncapi/permissions.yaml) | Dominio permissions (roles, roles de cada miembro, overrides por canal y dueño del servidor), que `messaging` replica para autorizar sin consultar a `servers`. |
-| [`asyncapi/messages.yaml`](asyncapi/messages.yaml) | Dominio messages (actividad de mensajería: mensaje creado en un canal y mensaje directo creado, sin su texto), que `messaging` publica y `notifications` consume para los indicadores de no leído y el historial de notificaciones. |
+| [`asyncapi/messages.yaml`](asyncapi/messages.yaml) | Dominio messages (actividad de mensajería: mensaje creado en un canal, mensaje directo creado y cambios de presencia del usuario), que `messaging` publica y `notifications` consume para los indicadores de no leído, el historial de notificaciones y las notificaciones push. |
 | [`asyncapi/admin.yaml`](asyncapi/admin.yaml) | Dominio admin (suspensión y reactivación de cuentas por el staff, eventos firmados con HMAC), que identify, servers, messaging y voz consumen para bloquear al usuario. |
 | [`adr/`](adr/) | Registro de decisiones de arquitectura (ADRs). |
 
@@ -44,7 +44,9 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `servers.member_roles_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
 | `servers.channel_overrides_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
 | `servers.owner_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
-| `messaging.message_created` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); no lleva el texto del mensaje | `messages.yaml` |
+| `messaging.message_created` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); lleva ids, más `channel_name` y `content_preview` opcionales solo para el push | `messages.yaml` |
+| `messaging.direct_message_created` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); lleva ids, más `content_preview` opcional solo para el push | `messages.yaml` |
+| `messaging.user_presence_changed` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); decide si se manda un push | `messages.yaml` |
 | `admin.user_suspended` | discordia-admin (firmado con HMAC) | discordia-identify (cola `identify.user_suspension`), discordia-servers (`servers.user_suspension`), discordia-messaging (`messaging.user_suspension`), discordia-voice-sfu (`voice.user_suspension`) | `admin.yaml` |
 | `admin.user_reactivated` | discordia-admin (firmado con HMAC) | los mismos que `admin.user_suspended` | `admin.yaml` |
 
