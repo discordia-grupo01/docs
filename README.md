@@ -50,7 +50,7 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `messaging.message_updated` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); agrega o quita la mención en el historial y avisa al recién mencionado | `messages.yaml` |
 | `messaging.message_deleted` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); borra las entradas del historial del mensaje | `messages.yaml` |
 | `messaging.user_presence_changed` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); decide si se manda un push | `messages.yaml` |
-| `admin.user_suspended` | discordia-admin (firmado con HMAC) | discordia-identify (cola `identify.user_suspension`), discordia-servers (`servers.user_suspension`), discordia-messaging (`messaging.user_suspension`), discordia-voice-sfu (`voice.user_suspension`) | `admin.yaml` |
+| `admin.user_suspended` | discordia-admin (firmado con HMAC) | discordia-identify (cola `identify.admin_events`), discordia-servers (`servers.admin_events`), discordia-messaging (`messaging.admin_events`), discordia-voice-sfu (`voice.signaling.<instance_id>.suspensions`) | `admin.yaml` |
 | `admin.user_reactivated` | discordia-admin (firmado con HMAC) | los mismos que `admin.user_suspended` | `admin.yaml` |
 | `billing.premium_updated` | discordia-billing (firmado con HMAC) | discordia-identify (cola `identify.billing_events`), discordia-messaging (`messaging.billing_events`) | `billing.yaml` |
 

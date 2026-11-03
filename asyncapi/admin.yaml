@@ -124,7 +124,7 @@ operations:
     action: receive
     title: discordia-identify consume admin.user_suspended
     description: |
-      Cola `identify.user_suspension`. Marca la cuenta como suspendida y revoca
+      Cola `identify.admin_events`. Marca la cuenta como suspendida y revoca
       todos sus refresh tokens (`RevokeAllForUser`). Desde ese momento rechaza
       login, refresh y cualquier request autenticado, y oculta el perfil
       público. Verifica la firma y aplica el evento solo si su `version` es
@@ -138,7 +138,7 @@ operations:
   identifyReceiveUserReactivated:
     action: receive
     title: discordia-identify consume admin.user_reactivated
-    description: Cola `identify.user_suspension`. Levanta la suspensión (misma regla de firma y `version`).
+    description: Cola `identify.admin_events`. Levanta la suspensión (misma regla de firma y `version`).
     channel:
       $ref: '#/channels/userReactivated'
     bindings:
@@ -149,7 +149,7 @@ operations:
     action: receive
     title: discordia-servers consume admin.user_suspended
     description: |
-      Cola `servers.user_suspension`. Guarda al usuario en `suspended_users` y
+      Cola `servers.admin_events`. Guarda al usuario en `suspended_users` y
       rechaza toda acción suya; en `GET /members` su perfil sale vacío.
     channel:
       $ref: '#/channels/userSuspended'
@@ -160,7 +160,7 @@ operations:
   serversReceiveUserReactivated:
     action: receive
     title: discordia-servers consume admin.user_reactivated
-    description: Cola `servers.user_suspension`. Saca al usuario de `suspended_users`.
+    description: Cola `servers.admin_events`. Saca al usuario de `suspended_users`.
     channel:
       $ref: '#/channels/userReactivated'
     bindings:
@@ -171,7 +171,7 @@ operations:
     action: receive
     title: discordia-messaging consume admin.user_suspended
     description: |
-      Cola `messaging.user_suspension`. Rechaza todo lo que haga el usuario,
+      Cola `messaging.admin_events`. Rechaza todo lo que haga el usuario,
       niega `POST /v1/socket-tickets` y cierra sus sockets abiertos.
     channel:
       $ref: '#/channels/userSuspended'
@@ -182,7 +182,7 @@ operations:
   messagingReceiveUserReactivated:
     action: receive
     title: discordia-messaging consume admin.user_reactivated
-    description: Cola `messaging.user_suspension`. Vuelve a permitir al usuario.
+    description: Cola `messaging.admin_events`. Vuelve a permitir al usuario.
     channel:
       $ref: '#/channels/userReactivated'
     bindings:
@@ -192,7 +192,7 @@ operations:
   voiceReceiveUserSuspended:
     action: receive
     title: discordia-voice-sfu consume admin.user_suspended
-    description: Cola `voice.user_suspension`. Niega el token de voz y saca al usuario de la sala si está conectado.
+    description: Cola `voice.signaling.<instance_id>.suspensions`. Niega el token de voz y saca al usuario de la sala si está conectado.
     channel:
       $ref: '#/channels/userSuspended'
     bindings:
@@ -202,7 +202,7 @@ operations:
   voiceReceiveUserReactivated:
     action: receive
     title: discordia-voice-sfu consume admin.user_reactivated
-    description: Cola `voice.user_suspension`. Vuelve a permitir al usuario conectarse a voz.
+    description: Cola `voice.signaling.<instance_id>.suspensions`. Vuelve a permitir al usuario conectarse a voz.
     channel:
       $ref: '#/channels/userReactivated'
     bindings:
