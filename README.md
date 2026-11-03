@@ -12,6 +12,7 @@ decisiones de arquitectura.
 | [`asyncapi/permissions.yaml`](asyncapi/permissions.yaml) | Dominio permissions (roles, roles de cada miembro, overrides por canal y dueño del servidor), que `messaging` replica para autorizar sin consultar a `servers`. |
 | [`asyncapi/messages.yaml`](asyncapi/messages.yaml) | Dominio messages (actividad de mensajería: mensaje creado en un canal, mensaje directo creado y cambios de presencia del usuario), que `messaging` publica y `notifications` consume para los indicadores de no leído, el historial de notificaciones y las notificaciones push. |
 | [`asyncapi/admin.yaml`](asyncapi/admin.yaml) | Dominio admin (suspensión y reactivación de cuentas por el staff, eventos firmados con HMAC), que identify, servers, messaging y voz consumen para bloquear al usuario. |
+| [`asyncapi/billing.yaml`](asyncapi/billing.yaml) | Dominio billing (estado de Premium de cada usuario, evento firmado con HMAC), que identify y messaging replican para dar los beneficios de Premium. |
 | [`adr/`](adr/) | Registro de decisiones de arquitectura (ADRs). |
 
 Cada dominio es un documento AsyncAPI aparte (no uno solo gigante): mismo
@@ -51,6 +52,7 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `messaging.user_presence_changed` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); decide si se manda un push | `messages.yaml` |
 | `admin.user_suspended` | discordia-admin (firmado con HMAC) | discordia-identify (cola `identify.user_suspension`), discordia-servers (`servers.user_suspension`), discordia-messaging (`messaging.user_suspension`), discordia-voice-sfu (`voice.user_suspension`) | `admin.yaml` |
 | `admin.user_reactivated` | discordia-admin (firmado con HMAC) | los mismos que `admin.user_suspended` | `admin.yaml` |
+| `billing.premium_updated` | discordia-billing (firmado con HMAC) | discordia-identify (cola `identify.billing_events`), discordia-messaging (`messaging.billing_events`) | `billing.yaml` |
 
 ## Cambiar un evento
 
