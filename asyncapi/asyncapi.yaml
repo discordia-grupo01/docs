@@ -212,6 +212,18 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  voicePrivateCall:
+    address: voice.private_call
+    title: voice.private_call
+    description: |
+      Cambio de estado de una llamada privada 1 a 1. Notifications usa el
+      evento para entregar push al llamante y al destinatario.
+    messages:
+      voicePrivateCall:
+        $ref: '#/components/messages/VoicePrivateCall'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
 operations:
   publishMemberJoined:
     action: send
@@ -326,6 +338,15 @@ operations:
     title: voice-sfu publica voice.participant_left
     channel:
       $ref: '#/channels/voiceParticipantLeft'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishVoicePrivateCall:
+    action: send
+    title: voice-sfu publica voice.private_call
+    channel:
+      $ref: '#/channels/voicePrivateCall'
     bindings:
       amqp:
         deliveryMode: 2
@@ -604,6 +625,12 @@ components:
             user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
             verified_at: '2026-09-26T14:35:00Z'
 
+    VoicePrivateCall:
+      name: VoicePrivateCall
+      title: Llamada de voz privada
+      payload:
+        $ref: '#/components/schemas/VoicePrivateCall'
+
   schemas:
     Meta:
       type: object
@@ -820,3 +847,18 @@ components:
         room_id: {type: string, format: uuid}
         participant_id: {type: string}
         name: {type: string}
+
+    VoicePrivateCall:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [event_type, call_id, conversation_id, caller_id, recipient_id, status]
+          properties:
+            event_type: {type: string, enum: [voice.private_call]}
+            call_id: {type: string}
+            conversation_id: {type: string, format: uuid}
+            caller_id: {type: string}
+            recipient_id: {type: string}
+            status:
+              type: string
+              enum: [ringing, rejected, missed, ended]
