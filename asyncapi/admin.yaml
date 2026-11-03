@@ -5,9 +5,10 @@ info:
   version: 0.1.0
   description: |
     Eventos que `admin` (el backend del backoffice) publica cuando el staff de
-    la plataforma suspende o reactiva una cuenta (HU #29 y #30). Documento
-    aparte de `asyncapi.yaml` porque es un dominio distinto -- ver `README.md`
-    para el índice completo.
+    la plataforma suspende o reactiva una cuenta, o suspende, reactiva o
+    elimina un servidor (HU #29, #30, #68 y #69). Documento aparte de
+    `asyncapi.yaml` porque es un dominio distinto -- ver `README.md` para el
+    índice completo.
 
     - Exchange `discordia.events`, tipo `topic`, durable (el mismo que usa el
       resto del bus).
@@ -29,23 +30,51 @@ info:
       niega tickets de socket y cierra sus sockets abiertos.
     - `voice`: niega el token de voz y lo saca de la sala si está conectado.
 
+    **Qué provoca la suspensión de un servidor.** Mientras está suspendido,
+    ningún miembro (ni su owner) puede usarlo, pero su contenido se conserva.
+    Cada servicio guarda localmente qué servidores están suspendidos:
+
+    - `servers`: rechaza con `403 SERVER_SUSPENDED` toda acción sobre el
+      servidor, salvo abandonarlo. El servidor sigue en la lista de los
+      miembros, marcado como suspendido.
+    - `messaging`: rechaza leer y escribir en sus canales y cierra los sockets
+      abiertos de esos canales en todas las instancias. No borra mensajes.
+    - `voice`: saca de la sala a quien esté conectado a un canal del servidor.
+      La entrada la bloquea `servers` al pedir el token de voz.
+
+    La reactivación levanta el bloqueo en `servers` y en `messaging`; `voice`
+    no necesita hacer nada.
+
+    **Qué provoca la eliminación de un servidor.** `admin.server_deletion_requested`
+    es un **pedido** firmado, no el hecho consumado: `servers` lo ejecuta (la
+    misma cascada que cuando el owner lo elimina) y recién ahí publica
+    `servers.server_deleted`, que ya consumen messaging, voice, notifications,
+    metrics y el propio admin. Por eso el nombre no termina en `server_deleted`:
+    no hay que confundirlo con ese evento. La eliminación es irreversible.
+
     **Orden y repeticiones.** `version` crece con cada suspensión o
-    reactivación del mismo usuario (es el `suspension_version` de admin). El
-    consumidor aplica un evento solo si su `version` es mayor a la que ya
-    tiene: uno repetido o fuera de orden es inofensivo. El motivo de la
-    suspensión no viaja (minimización de datos).
+    reactivación del mismo usuario (es el `suspension_version` de admin), o con
+    cada suspensión, reactivación o eliminación del mismo servidor (es el
+    `moderation_version` de admin). El consumidor aplica un evento solo si su
+    `version` es mayor a la que ya tiene: uno repetido o fuera de orden es
+    inofensivo. El motivo de la suspensión o de la eliminación no viaja
+    (minimización de datos).
 
     **Firma.** Estos son los únicos eventos firmados: una suspensión falsa
-    dejaría a cualquiera sin acceso, y RabbitMQ no impide que otro cliente con
-    credenciales del broker publique una routing key `admin.*`. `admin` y cada
-    consumidor comparten el secreto `ADMIN_EVENTS_HMAC_SECRET`.
+    dejaría a cualquiera sin acceso, una eliminación falsa borraría un servidor
+    para siempre, y RabbitMQ no impide que otro cliente con credenciales del
+    broker publique una routing key `admin.*`. `admin` y cada consumidor
+    comparten el secreto `ADMIN_EVENTS_HMAC_SECRET`.
 
     - `signature` = hex(HMAC-SHA256(secreto, texto)), donde `texto` es la
       concatenación, separada por saltos de línea (`\n`), de: routing key,
-      `event_id`, `user_id`, `version` (decimal) y `occurred_at` (ISO 8601 en
-      UTC con `RFC3339Nano`, es decir sin ceros finales en los nanosegundos).
+      `event_id`, el identificador del sujeto (`user_id` en los eventos de
+      cuenta, `server_id` en los de servidor), `version` (decimal) y
+      `occurred_at` (ISO 8601 en UTC con `RFC3339Nano`, es decir sin ceros
+      finales en los nanosegundos).
     - Incluir la routing key evita reusar una firma de suspensión como si fuera
-      de reactivación.
+      de reactivación o de eliminación, y una firma de cuenta como si fuera de
+      servidor.
     - El consumidor verifica la firma **antes** de tocar nada, con comparación
       de tiempo constante. Si falta, no es hex o no coincide, descarta el
       evento (ack, sin reencolar) y lo registra. Un secreto vacío nunca
@@ -56,7 +85,8 @@ info:
     **Arranque de un consumidor nuevo.** RabbitMQ no guarda lo publicado antes
     de que existiera su cola. `admin` incluye un comando que re-publica un
     `admin.user_suspended` (con la `version` vigente) por cada usuario
-    suspendido; se corre después de desplegar un consumidor nuevo.
+    suspendido, y un `admin.server_suspended` por cada servidor suspendido; se
+    corre después de desplegar un consumidor nuevo.
 
     Este documento es la fuente de verdad del schema. Las implementaciones
     viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract)
@@ -101,6 +131,45 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  serverSuspended:
+    address: admin.server_suspended
+    title: admin.server_suspended
+    description: |
+      El staff suspendió un servidor (HU #69). Se publica en la misma
+      transacción que el cambio de estado en `admin`. El contenido del servidor
+      se conserva; nadie puede usarlo hasta que se reactive.
+    messages:
+      serverSuspended:
+        $ref: '#/components/messages/ServerSuspended'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  serverReactivated:
+    address: admin.server_reactivated
+    title: admin.server_reactivated
+    description: |
+      El staff levantó la suspensión de un servidor (HU #69). Sus miembros
+      recuperan el acceso normal.
+    messages:
+      serverReactivated:
+        $ref: '#/components/messages/ServerReactivated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  serverDeletionRequested:
+    address: admin.server_deletion_requested
+    title: admin.server_deletion_requested
+    description: |
+      El staff pidió eliminar un servidor (HU #68), después de confirmar con su
+      nombre. Es un pedido, no el hecho consumado: `servers` borra el servidor
+      con todos sus canales, roles y membresías y publica
+      `servers.server_deleted`. Es irreversible.
+    messages:
+      serverDeletionRequested:
+        $ref: '#/components/messages/ServerDeletionRequested'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
 operations:
   publishUserSuspended:
     action: send
@@ -116,6 +185,33 @@ operations:
     title: discordia-admin publica admin.user_reactivated
     channel:
       $ref: '#/channels/userReactivated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishServerSuspended:
+    action: send
+    title: discordia-admin publica admin.server_suspended
+    channel:
+      $ref: '#/channels/serverSuspended'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishServerReactivated:
+    action: send
+    title: discordia-admin publica admin.server_reactivated
+    channel:
+      $ref: '#/channels/serverReactivated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishServerDeletionRequested:
+    action: send
+    title: discordia-admin publica admin.server_deletion_requested
+    channel:
+      $ref: '#/channels/serverDeletionRequested'
     bindings:
       amqp:
         deliveryMode: 2
@@ -209,6 +305,78 @@ operations:
       amqp:
         ack: true
 
+  serversReceiveServerSuspended:
+    action: receive
+    title: discordia-servers consume admin.server_suspended
+    description: |
+      Cola `servers.admin_events`. Verifica la firma y, si la `version` es
+      mayor a la guardada, marca el servidor como suspendido. Desde entonces
+      rechaza con `403 SERVER_SUSPENDED` toda acción sobre el servidor (incluida
+      la entrada a voz y la del owner), salvo abandonarlo. El servidor sigue en
+      la lista de sus miembros, marcado como suspendido.
+    channel:
+      $ref: '#/channels/serverSuspended'
+    bindings:
+      amqp:
+        ack: true
+
+  serversReceiveServerReactivated:
+    action: receive
+    title: discordia-servers consume admin.server_reactivated
+    description: Cola `servers.admin_events`. Levanta la suspensión del servidor (misma regla de firma y `version`).
+    channel:
+      $ref: '#/channels/serverReactivated'
+    bindings:
+      amqp:
+        ack: true
+
+  serversReceiveServerDeletionRequested:
+    action: receive
+    title: discordia-servers consume admin.server_deletion_requested
+    description: |
+      Cola `servers.admin_events`. Verifica la firma y elimina el servidor con
+      la misma cascada que usa el owner, sin pedir el nombre (la confirmación ya
+      la hizo el staff en `admin`). Después publica `servers.server_deleted`.
+      Si el servidor ya no existe, confirma el mensaje y no hace nada.
+    channel:
+      $ref: '#/channels/serverDeletionRequested'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveServerSuspended:
+    action: receive
+    title: discordia-messaging consume admin.server_suspended
+    description: |
+      Cola `messaging.admin_events`. Rechaza leer y escribir en los canales del
+      servidor y cierra los sockets abiertos de esos canales en todas las
+      instancias. Los mensajes no se borran.
+    channel:
+      $ref: '#/channels/serverSuspended'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveServerReactivated:
+    action: receive
+    title: discordia-messaging consume admin.server_reactivated
+    description: Cola `messaging.admin_events`. Vuelve a permitir leer y escribir en los canales del servidor.
+    channel:
+      $ref: '#/channels/serverReactivated'
+    bindings:
+      amqp:
+        ack: true
+
+  voiceReceiveServerSuspended:
+    action: receive
+    title: discordia-voice-sfu consume admin.server_suspended
+    description: Cola `voice.signaling.<instance_id>.suspensions` (una por réplica). Saca de la sala a quien esté conectado a un canal de voz del servidor.
+    channel:
+      $ref: '#/channels/serverSuspended'
+    bindings:
+      amqp:
+        ack: true
+
 components:
   channelBindings:
     discordiaEvents:
@@ -248,6 +416,45 @@ components:
             user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
             version: 2
             signature: 1e3b5f7a9c1d3e5b7f9a1c3d5e7b9f1a3c5d7e9b1f3a5c7d9e1b3f5a7c9d1e3b
+
+    ServerSuspended:
+      name: ServerSuspended
+      title: Servidor suspendido
+      payload:
+        $ref: '#/components/schemas/ServerSuspended'
+      examples:
+        - payload:
+            event_id: 9c0d1e2f-3a4b-4c5d-8e6f-8a9b0c1d2e3f
+            occurred_at: '2026-11-05T15:20:10.123456Z'
+            server_id: c3d4e5f6-0a1b-4c2d-9e3f-5a6b7c8d9e0f
+            version: 1
+            signature: 2f4c6e8a0b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1a3c5e7b9d1f3a
+
+    ServerReactivated:
+      name: ServerReactivated
+      title: Servidor reactivado
+      payload:
+        $ref: '#/components/schemas/ServerReactivated'
+      examples:
+        - payload:
+            event_id: 0d1e2f3a-4b5c-4d6e-9f7a-9b0c1d2e3f4a
+            occurred_at: '2026-11-06T09:00:00Z'
+            server_id: c3d4e5f6-0a1b-4c2d-9e3f-5a6b7c8d9e0f
+            version: 2
+            signature: 3a5c7e9b1d3f5b7d9f1b3d5f7b9d1f3b5d7f9b1d3f5b7d9f1b3d5f7b9d1f3b5d
+
+    ServerDeletionRequested:
+      name: ServerDeletionRequested
+      title: Eliminación de servidor pedida
+      payload:
+        $ref: '#/components/schemas/ServerDeletionRequested'
+      examples:
+        - payload:
+            event_id: 1e2f3a4b-5c6d-4e7f-8a8b-0c1d2e3f4a5b
+            occurred_at: '2026-11-07T18:45:30.5Z'
+            server_id: c3d4e5f6-0a1b-4c2d-9e3f-5a6b7c8d9e0f
+            version: 3
+            signature: 4b6d8f0a2c4e6a8c0e2a4c6e8a0c2e4a6c8e0a2c4e6a8c0e2a4c6e8a0c2e4a6c
 
   schemas:
     Meta:
@@ -290,3 +497,35 @@ components:
       allOf:
         - $ref: '#/components/schemas/Meta'
         - $ref: '#/components/schemas/SuspensionEvent'
+
+    ServerModerationEvent:
+      type: object
+      required: [server_id, version, signature]
+      properties:
+        server_id:
+          type: string
+          format: uuid
+          description: Servidor suspendido, reactivado o a eliminar (ID de discordia-servers).
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: moderation_version del servidor en admin. Crece con cada suspensión, reactivación o eliminación; ordena los eventos del mismo servidor.
+        signature:
+          type: string
+          description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
+
+    ServerSuspended:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - $ref: '#/components/schemas/ServerModerationEvent'
+
+    ServerReactivated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - $ref: '#/components/schemas/ServerModerationEvent'
+
+    ServerDeletionRequested:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - $ref: '#/components/schemas/ServerModerationEvent'
