@@ -46,6 +46,8 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `servers.owner_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
 | `messaging.message_created` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); lleva ids, más `channel_name` y `content_preview` opcionales solo para el push | `messages.yaml` |
 | `messaging.direct_message_created` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); lleva ids, más `content_preview` opcional solo para el push | `messages.yaml` |
+| `messaging.message_updated` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); agrega o quita la mención en el historial y avisa al recién mencionado | `messages.yaml` |
+| `messaging.message_deleted` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); borra las entradas del historial del mensaje | `messages.yaml` |
 | `messaging.user_presence_changed` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); decide si se manda un push | `messages.yaml` |
 | `admin.user_suspended` | discordia-admin (firmado con HMAC) | discordia-identify (cola `identify.user_suspension`), discordia-servers (`servers.user_suspension`), discordia-messaging (`messaging.user_suspension`), discordia-voice-sfu (`voice.user_suspension`) | `admin.yaml` |
 | `admin.user_reactivated` | discordia-admin (firmado con HMAC) | los mismos que `admin.user_suspended` | `admin.yaml` |
