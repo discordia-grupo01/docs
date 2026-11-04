@@ -105,6 +105,40 @@ servers:
 defaultContentType: application/json
 
 channels:
+  staffMemberAdded:
+    address: admin.staff_member_added
+    title: admin.staff_member_added
+    description: Foto firmada de un miembro de staff para proyecciones locales.
+    messages:
+      staffMemberAdded:
+        payload:
+          type: object
+          required: [event_id, occurred_at, user_id, signature]
+          properties:
+            event_id: { type: string, format: uuid }
+            occurred_at: { type: string, format: date-time }
+            user_id: { type: string, format: uuid }
+            signature: { type: string }
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  staffMemberRemoved:
+    address: admin.staff_member_removed
+    title: admin.staff_member_removed
+    description: Revocación firmada de un miembro de staff.
+    messages:
+      staffMemberRemoved:
+        payload:
+          type: object
+          required: [event_id, occurred_at, user_id, signature]
+          properties:
+            event_id: { type: string, format: uuid }
+            occurred_at: { type: string, format: date-time }
+            user_id: { type: string, format: uuid }
+            signature: { type: string }
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
   userSuspended:
     address: admin.user_suspended
     title: admin.user_suspended
