@@ -95,6 +95,33 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  emojiCreated:
+    address: servers.emoji_created
+    title: servers.emoji_created
+    description: |
+      Un emoji personalizado se agregó a un servidor. Un emoji no cambia después
+      de crearse. Por eso este evento y `servers.emoji_deleted` llevan los mismos
+      datos, y el consumidor no depende del orden en que lleguen: un emoji borrado
+      sigue borrado aunque el alta llegue después.
+    messages:
+      emojiCreated:
+        $ref: '#/components/messages/EmojiCreated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  emojiDeleted:
+    address: servers.emoji_deleted
+    title: servers.emoji_deleted
+    description: |
+      Un emoji personalizado se borró. No se puede usar en mensajes ni reacciones
+      nuevos, pero la imagen sigue disponible: el consumidor la conserva para que
+      el contenido histórico la siga mostrando.
+    messages:
+      emojiDeleted:
+        $ref: '#/components/messages/EmojiDeleted'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
   channelAccessRevoked:
     address: servers.channel_access_revoked
     title: servers.channel_access_revoked
@@ -161,6 +188,24 @@ operations:
       amqp:
         deliveryMode: 2
 
+  publishEmojiCreated:
+    action: send
+    title: discordia-servers publica servers.emoji_created
+    channel:
+      $ref: '#/channels/emojiCreated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishEmojiDeleted:
+    action: send
+    title: discordia-servers publica servers.emoji_deleted
+    channel:
+      $ref: '#/channels/emojiDeleted'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
   publishChannelAccessRevoked:
     action: send
     title: discordia-servers publica servers.channel_access_revoked
@@ -208,6 +253,30 @@ operations:
       `user_ids` en ese canal. Sin chequeo de eventos viejos (ver el canal).
     channel:
       $ref: '#/channels/channelAccessRevoked'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveEmojiCreated:
+    action: receive
+    title: discordia-messaging consume servers.emoji_created
+    description: |
+      Cola `messaging.server_emojis`. Agrega el emoji a su réplica, salvo que ya
+      figure como borrado.
+    channel:
+      $ref: '#/channels/emojiCreated'
+    bindings:
+      amqp:
+        ack: true
+
+  messagingReceiveEmojiDeleted:
+    action: receive
+    title: discordia-messaging consume servers.emoji_deleted
+    description: |
+      Cola `messaging.server_emojis`. Marca el emoji como borrado en su réplica y
+      conserva la imagen para el contenido histórico.
+    channel:
+      $ref: '#/channels/emojiDeleted'
     bindings:
       amqp:
         ack: true
@@ -378,6 +447,36 @@ components:
             user_ids:
               - 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
 
+    EmojiCreated:
+      name: EmojiCreated
+      title: Emoji personalizado creado
+      payload:
+        $ref: '#/components/schemas/EmojiCreated'
+      examples:
+        - payload:
+            event_id: 5e6f7a8b-9c0d-4e1f-8a2b-4c5d6e7f8a9b
+            occurred_at: '2026-11-05T18:00:00Z'
+            emoji_id: 2f4e6a8c-1b3d-4f5a-9c7e-8d6b4a2c0e1f
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            name: party
+            animated: true
+            image_url: https://storage.example.com/emojis/2f4e6a8c.gif
+
+    EmojiDeleted:
+      name: EmojiDeleted
+      title: Emoji personalizado borrado
+      payload:
+        $ref: '#/components/schemas/EmojiDeleted'
+      examples:
+        - payload:
+            event_id: 5e6f7a8b-9c0d-4e1f-8a2b-4c5d6e7f8a9b
+            occurred_at: '2026-11-05T18:00:00Z'
+            emoji_id: 2f4e6a8c-1b3d-4f5a-9c7e-8d6b4a2c0e1f
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            name: party
+            animated: true
+            image_url: https://storage.example.com/emojis/2f4e6a8c.gif
+
   schemas:
     Meta:
       type: object
@@ -439,6 +538,50 @@ components:
               items:
                 type: string
                 format: uuid
+
+    EmojiCreated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [emoji_id, server_id, name, animated, image_url]
+          properties:
+            emoji_id:
+              type: string
+              format: uuid
+            server_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[A-Za-z0-9_]{2,32}$'
+            animated:
+              type: boolean
+              description: true si la imagen es un GIF; usarlo requiere Premium.
+            image_url:
+              type: string
+              format: uri
+
+    EmojiDeleted:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [emoji_id, server_id, name, animated, image_url]
+          properties:
+            emoji_id:
+              type: string
+              format: uuid
+            server_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              pattern: '^[A-Za-z0-9_]{2,32}$'
+            animated:
+              type: boolean
+              description: true si la imagen es un GIF; usarlo requiere Premium.
+            image_url:
+              type: string
+              format: uri
 
     ServerUpdated:
       allOf:

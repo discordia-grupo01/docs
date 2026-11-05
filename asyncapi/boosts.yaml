@@ -1,0 +1,416 @@
+asyncapi: 3.0.0
+
+info:
+  title: Discordia — Boosts de servidor
+  version: 0.1.0
+  description: |
+    Saga por coreografía para boostear un servidor. `billing` es dueño de los
+    puntos; `servers`, de los miembros, la suspensión y el nivel. Son dos bases
+    separadas, sin transacción común, y se coordinan con estos eventos. Documento
+    aparte porque cruza dos dominios -- ver `README.md` para el índice completo.
+
+    - Exchange `discordia.events`, tipo `topic`, durable.
+    - Mensajes `application/json`, persistentes (`delivery_mode = 2`).
+    - Garantía at-least-once: los dos servicios usan outbox transaccional.
+    - Una cola durable por servicio consumidor, con ack manual.
+
+    **Flujo.** `billing` descuenta los puntos, crea el boost en `pending` y publica
+    `billing.server_boost_requested`, todo en la misma transacción. `servers`
+    responde `servers.server_boost_applied` o `servers.server_boost_rejected`. Si
+    rechaza, `billing` devuelve los puntos. Un boost cuesta 100 puntos.
+
+    **Fallas.** Solo una regla de negocio rechaza: un error técnico reencola el
+    evento, así que nunca devuelve puntos. `billing` republica cada 5 minutos los
+    boosts en `pending`, porque RabbitMQ pierde lo publicado si la cola no existía.
+    Si pasan 24 horas sin respuesta, devuelve los puntos y publica
+    `billing.server_boost_cancelled`.
+
+    **Servidor borrado.** `billing` también consume `servers.server_deleted` en la
+    cola `billing.servers_events` y pasa sus boosts a `removed`, sin devolución.
+
+    **Repeticiones.** `boost_id` identifica el boost en los dos lados: procesar un
+    evento dos veces no tiene efecto.
+
+    **Firma.** Los cinco eventos de la saga van firmados: un rechazo falso regalaría
+    puntos y un pedido falso daría boosts gratis. `billing` y `servers` comparten
+    `BILLING_EVENTS_HMAC_SECRET`.
+
+    - `signature` = hex(HMAC-SHA256(secreto, texto)), donde `texto` es la
+      concatenación, separada por saltos de línea (`\n`), de: routing key,
+      `event_id`, `boost_id`, `server_id`, `user_id`, `reason` (cadena vacía si no
+      tiene) y `occurred_at`.
+    - La routing key entra en la firma para que un `applied` válido no se pueda
+      reusar como `removed`.
+    - La fecha va en UTC con `RFC3339Nano`, sin ceros finales en los nanosegundos.
+    - El consumidor verifica la firma **antes** de tocar nada. Si falta, no es hex
+      o no coincide, descarta el evento (ack, sin reencolar) y lo registra. Un
+      secreto vacío nunca verifica.
+    - `events-contract` (`boosts/events.go`) trae `Sign` y `Verify`.
+
+    `servers.server_boost_updated` no va firmado, como el resto de `servers.*`: es
+    una foto del servidor, y el consumidor la aplica solo si `version` es mayor a
+    la que ya tiene.
+
+    Este documento es la fuente de verdad del schema. Las implementaciones viven en
+    [`events-contract`](https://github.com/discordia-grupo01/events-contract)
+    (`boosts/events.go`): un cambio de schema se hace primero acá y después se
+    replica allá.
+
+servers:
+  rabbitmq:
+    host: '{host}'
+    protocol: amqp
+    description: 'Broker RabbitMQ (local vía docker-compose; en la nube, CloudAMQP).'
+    variables:
+      host:
+        default: localhost:5672
+
+defaultContentType: application/json
+
+channels:
+  requested:
+    address: billing.server_boost_requested
+    title: billing.server_boost_requested
+    description: 'billing reservó los puntos y pide aplicar el boost.'
+    messages:
+      boostRequested:
+        $ref: '#/components/messages/BoostRequested'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  cancelled:
+    address: billing.server_boost_cancelled
+    title: billing.server_boost_cancelled
+    description: 'servers no respondió en 24 horas: billing ya devolvió los puntos.'
+    messages:
+      boostCancelled:
+        $ref: '#/components/messages/BoostCancelled'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  removed:
+    address: billing.server_boost_removed
+    title: billing.server_boost_removed
+    description: 'El dueño retiró el boost, sin devolución.'
+    messages:
+      boostRemoved:
+        $ref: '#/components/messages/BoostRemoved'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  applied:
+    address: servers.server_boost_applied
+    title: servers.server_boost_applied
+    description: 'servers contó el boost.'
+    messages:
+      boostApplied:
+        $ref: '#/components/messages/BoostApplied'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  rejected:
+    address: servers.server_boost_rejected
+    title: servers.server_boost_rejected
+    description: 'servers rechazó el boost por una regla de negocio; `reason` dice cuál.'
+    messages:
+      boostRejected:
+        $ref: '#/components/messages/BoostRejected'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  updated:
+    address: servers.server_boost_updated
+    title: servers.server_boost_updated
+    description: 'Foto de los boosts y el nivel de un servidor. Se publica cada vez que cambia.'
+    messages:
+      serverBoostUpdated:
+        $ref: '#/components/messages/ServerBoostUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+operations:
+  publishRequested:
+    action: send
+    title: discordia-billing publica billing.server_boost_requested
+    channel:
+      $ref: '#/channels/requested'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  serversReceiveRequested:
+    action: receive
+    title: discordia-servers consume billing.server_boost_requested
+    description: |
+      Cola `servers.billing_events`. Valida en una transacción que el servidor exista, no esté suspendido y que el usuario sea miembro, guarda el resultado por `boost_id` y responde. Un error técnico reencola el evento; nunca lo rechaza.
+    channel:
+      $ref: '#/channels/requested'
+    bindings:
+      amqp:
+        ack: true
+
+  publishCancelled:
+    action: send
+    title: discordia-billing publica billing.server_boost_cancelled
+    channel:
+      $ref: '#/channels/cancelled'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  serversReceiveCancelled:
+    action: receive
+    title: discordia-servers consume billing.server_boost_cancelled
+    description: |
+      Cola `servers.billing_events`. Si el boost estaba aplicado lo revierte. Si todavía no llegó el pedido, guarda el `boost_id` como cancelado y después lo rechaza con `cancelled`.
+    channel:
+      $ref: '#/channels/cancelled'
+    bindings:
+      amqp:
+        ack: true
+
+  publishRemoved:
+    action: send
+    title: discordia-billing publica billing.server_boost_removed
+    channel:
+      $ref: '#/channels/removed'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  serversReceiveRemoved:
+    action: receive
+    title: discordia-servers consume billing.server_boost_removed
+    description: |
+      Cola `servers.billing_events`. Descuenta el boost y recalcula el nivel. Repetirlo no tiene efecto.
+    channel:
+      $ref: '#/channels/removed'
+    bindings:
+      amqp:
+        ack: true
+
+  publishApplied:
+    action: send
+    title: discordia-servers publica servers.server_boost_applied
+    channel:
+      $ref: '#/channels/applied'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  billingReceiveApplied:
+    action: receive
+    title: discordia-billing consume servers.server_boost_applied
+    description: |
+      Cola `billing.servers_events`. Pasa el boost de `pending` a `active`. Solo mueve filas `pending`, así que repetirlo no tiene efecto.
+    channel:
+      $ref: '#/channels/applied'
+    bindings:
+      amqp:
+        ack: true
+
+  publishRejected:
+    action: send
+    title: discordia-servers publica servers.server_boost_rejected
+    channel:
+      $ref: '#/channels/rejected'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  billingReceiveRejected:
+    action: receive
+    title: discordia-billing consume servers.server_boost_rejected
+    description: |
+      Cola `billing.servers_events`. Compensación: pasa el boost a `failed` y devuelve los puntos. El ledger tiene `UNIQUE(reason, ref_id)`, así que nunca devuelve dos veces.
+    channel:
+      $ref: '#/channels/rejected'
+    bindings:
+      amqp:
+        ack: true
+
+  publishUpdated:
+    action: send
+    title: discordia-servers publica servers.server_boost_updated
+    channel:
+      $ref: '#/channels/updated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  messagingReceiveUpdated:
+    action: receive
+    title: discordia-messaging consume servers.server_boost_updated
+    description: |
+      Cola `messaging.server_boosts`. Guarda el nivel del servidor para el límite
+      de adjuntos, si `version` es mayor a la que ya tiene.
+    channel:
+      $ref: '#/channels/updated'
+    bindings:
+      amqp:
+        ack: true
+
+components:
+  channelBindings:
+    discordiaEvents:
+      amqp:
+        is: routingKey
+        exchange:
+          name: discordia.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+
+  messages:
+    BoostRequested:
+      name: BoostRequested
+      title: billing.server_boost_requested
+      payload:
+        $ref: '#/components/schemas/SagaEvent'
+      # La firma del ejemplo es ilustrativa (no verifica con ningún secreto real).
+      examples:
+        - payload:
+            event_id: 3f6c2a1e-8b4d-4e7a-9c1f-2d5b8e7a6c4f
+            occurred_at: '2026-11-05T12:30:45.5Z'
+            boost_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            server_id: 2f4e6a8c-1b3d-4f5a-9c7e-8d6b4a2c0e1f
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            signature: 2b7e9f1a3c5d7e9b1f3a5c7d9e1b3f5a7c9d1e3b9f2b0c4e7a1d3b5f8e6a2c4d
+
+    BoostCancelled:
+      name: BoostCancelled
+      title: billing.server_boost_cancelled
+      payload:
+        $ref: '#/components/schemas/SagaEvent'
+      # La firma del ejemplo es ilustrativa (no verifica con ningún secreto real).
+      examples:
+        - payload:
+            event_id: 3f6c2a1e-8b4d-4e7a-9c1f-2d5b8e7a6c4f
+            occurred_at: '2026-11-05T12:30:45.5Z'
+            boost_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            server_id: 2f4e6a8c-1b3d-4f5a-9c7e-8d6b4a2c0e1f
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            signature: 2b7e9f1a3c5d7e9b1f3a5c7d9e1b3f5a7c9d1e3b9f2b0c4e7a1d3b5f8e6a2c4d
+
+    BoostRemoved:
+      name: BoostRemoved
+      title: billing.server_boost_removed
+      payload:
+        $ref: '#/components/schemas/SagaEvent'
+      # La firma del ejemplo es ilustrativa (no verifica con ningún secreto real).
+      examples:
+        - payload:
+            event_id: 3f6c2a1e-8b4d-4e7a-9c1f-2d5b8e7a6c4f
+            occurred_at: '2026-11-05T12:30:45.5Z'
+            boost_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            server_id: 2f4e6a8c-1b3d-4f5a-9c7e-8d6b4a2c0e1f
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            signature: 2b7e9f1a3c5d7e9b1f3a5c7d9e1b3f5a7c9d1e3b9f2b0c4e7a1d3b5f8e6a2c4d
+
+    BoostApplied:
+      name: BoostApplied
+      title: servers.server_boost_applied
+      payload:
+        $ref: '#/components/schemas/SagaEvent'
+      # La firma del ejemplo es ilustrativa (no verifica con ningún secreto real).
+      examples:
+        - payload:
+            event_id: 3f6c2a1e-8b4d-4e7a-9c1f-2d5b8e7a6c4f
+            occurred_at: '2026-11-05T12:30:45.5Z'
+            boost_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            server_id: 2f4e6a8c-1b3d-4f5a-9c7e-8d6b4a2c0e1f
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            signature: 2b7e9f1a3c5d7e9b1f3a5c7d9e1b3f5a7c9d1e3b9f2b0c4e7a1d3b5f8e6a2c4d
+
+    BoostRejected:
+      name: BoostRejected
+      title: servers.server_boost_rejected
+      payload:
+        $ref: '#/components/schemas/BoostRejected'
+      # La firma del ejemplo es ilustrativa (no verifica con ningún secreto real).
+      examples:
+        - payload:
+            event_id: 3f6c2a1e-8b4d-4e7a-9c1f-2d5b8e7a6c4f
+            occurred_at: '2026-11-05T12:30:45.5Z'
+            boost_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            server_id: 2f4e6a8c-1b3d-4f5a-9c7e-8d6b4a2c0e1f
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            reason: not_a_member
+            signature: 2b7e9f1a3c5d7e9b1f3a5c7d9e1b3f5a7c9d1e3b9f2b0c4e7a1d3b5f8e6a2c4d
+
+    ServerBoostUpdated:
+      name: ServerBoostUpdated
+      title: servers.server_boost_updated
+      payload:
+        $ref: '#/components/schemas/ServerBoostUpdated'
+      examples:
+        - payload:
+            event_id: 5e6f7a8b-9c0d-4e1f-8a2b-4c5d6e7f8a9b
+            occurred_at: '2026-11-05T12:30:46Z'
+            server_id: 2f4e6a8c-1b3d-4f5a-9c7e-8d6b4a2c0e1f
+            boost_count: 15
+            level: 2
+            version: 7
+
+  schemas:
+    Meta:
+      type: object
+      required: [event_id, occurred_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+
+    SagaEvent:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [boost_id, server_id, user_id, signature]
+          properties:
+            boost_id:
+              type: string
+              format: uuid
+            server_id:
+              type: string
+              format: uuid
+            user_id:
+              type: string
+              format: uuid
+            signature:
+              type: string
+              pattern: '^[0-9a-f]{64}$'
+
+    BoostRejected:
+      allOf:
+        - $ref: '#/components/schemas/SagaEvent'
+        - type: object
+          required: [reason]
+          properties:
+            reason:
+              type: string
+              enum: [server_not_found, server_suspended, not_a_member, cancelled]
+
+    ServerBoostUpdated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [server_id, boost_count, level, version]
+          properties:
+            server_id:
+              type: string
+              format: uuid
+            boost_count:
+              type: integer
+              minimum: 0
+            level:
+              type: integer
+              minimum: 0
+              maximum: 3
+              description: 0 hasta 4 boosts, 1 desde 5, 2 desde 15 y 3 desde 30.
+            version:
+              type: integer
+              format: int64

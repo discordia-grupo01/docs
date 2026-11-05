@@ -33,6 +33,19 @@ servers:
 defaultContentType: application/json
 
 channels:
+  platformStatusChanged:
+    address: platform.status_changed
+    title: platform.status_changed
+    description: |
+      Metrics publica este aviso al publicar o resolver un incidente. No
+      transporta el incidente completo: notifications lo difunde por el tópico
+      `platform` para que los clientes vuelvan a consultar `GET /v1/status`.
+    messages:
+      platformStatusChanged:
+        $ref: '#/components/messages/PlatformStatusChanged'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
   memberJoined:
     address: servers.member_joined
     title: servers.member_joined
@@ -481,6 +494,16 @@ operations:
       amqp:
         ack: true
 
+  notificationsReceivePlatformStatusChanged:
+    action: receive
+    title: discordia-notifications consume platform.status_changed
+    description: Difunde un aviso de refetch en el tópico `platform`.
+    channel:
+      $ref: '#/channels/platformStatusChanged'
+    bindings:
+      amqp:
+        ack: true
+
 components:
   channelBindings:
     discordiaEvents:
@@ -494,6 +517,17 @@ components:
           vhost: /
 
   messages:
+    PlatformStatusChanged:
+      name: PlatformStatusChanged
+      title: Estado de plataforma modificado
+      payload:
+        $ref: '#/components/schemas/PlatformStatusChanged'
+      examples:
+        - payload:
+            event_id: 3f9c2a1e-6b1d-4c1a-9a3e-2b7f0c8d9e10
+            occurred_at: '2026-11-05T03:30:00Z'
+            status: degraded
+
     MemberJoined:
       name: MemberJoined
       title: Miembro unido
@@ -645,6 +679,16 @@ components:
           type: string
           format: date-time
           description: Momento del hecho de negocio, ISO 8601 en UTC.
+
+    PlatformStatusChanged:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [status]
+          properties:
+          status:
+            type: string
+            enum: [operational, degraded, maintenance]
 
     MemberJoined:
       allOf:
@@ -859,6 +903,9 @@ components:
             conversation_id: {type: string, format: uuid}
             caller_id: {type: string}
             recipient_id: {type: string}
+            room_name: {type: string}
             status:
               type: string
-              enum: [ringing, rejected, missed, ended]
+              enum: [ringing, active, rejected, missed, ended]
+            reason: {type: string}
+            ended_by: {type: string}
