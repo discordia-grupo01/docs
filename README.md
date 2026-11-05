@@ -13,6 +13,7 @@ decisiones de arquitectura.
 | [`asyncapi/messages.yaml`](asyncapi/messages.yaml) | Dominio messages (actividad de mensajería: mensaje creado en un canal, mensaje directo creado y cambios de presencia del usuario), que `messaging` publica y `notifications` consume para los indicadores de no leído, el historial de notificaciones y las notificaciones push. |
 | [`asyncapi/admin.yaml`](asyncapi/admin.yaml) | Dominio admin (suspensión y reactivación de cuentas, y suspensión, reactivación y eliminación de servidores, por el staff; eventos firmados con HMAC), que identify, servers, messaging y voz consumen para bloquear al usuario o al servidor. |
 | [`asyncapi/billing.yaml`](asyncapi/billing.yaml) | Dominio billing (estado de Premium de cada usuario, evento firmado con HMAC), que identify y messaging replican para dar los beneficios de Premium. |
+| [`asyncapi/boosts.yaml`](asyncapi/boosts.yaml) | Saga para boostear un servidor entre billing y servers (eventos firmados con HMAC) y foto del nivel, que `messaging` replica. |
 | [`adr/`](adr/) | Registro de decisiones de arquitectura (ADRs). |
 
 Cada dominio es un documento AsyncAPI aparte (no uno solo gigante): mismo
@@ -37,7 +38,7 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `users.email_verified` | discordia-identify | discordia-admin (cola `admin.users`); solo para el estado "pendiente" del backoffice, no suscribir a otros servicios | `asyncapi.yaml` |
 | `servers.channel_created` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
 | `servers.channel_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
-| `servers.server_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`), discordia-admin (cola `admin.servers`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
+| `servers.server_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`), discordia-admin (cola `admin.servers`), discordia-notifications (cola `notifications.unread_state`), discordia-billing (cola `billing.servers_events`) | `channels.yaml` |
 | `servers.server_updated` | discordia-servers | discordia-admin (cola `admin.servers`) | `channels.yaml` |
 | `servers.emoji_created` | discordia-servers | discordia-messaging (cola `messaging.server_emojis`) | `channels.yaml` |
 | `servers.emoji_deleted` | discordia-servers | discordia-messaging (cola `messaging.server_emojis`) | `channels.yaml` |
@@ -58,6 +59,12 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `admin.server_reactivated` | discordia-admin (firmado con HMAC) | discordia-servers (cola `servers.admin_events`), discordia-messaging (`messaging.admin_events`) | `admin.yaml` |
 | `admin.server_deletion_requested` | discordia-admin (firmado con HMAC) | discordia-servers (cola `servers.admin_events`), que borra el servidor y publica `servers.server_deleted`; es un pedido, no el hecho consumado | `admin.yaml` |
 | `billing.premium_updated` | discordia-billing (firmado con HMAC) | discordia-identify (cola `identify.billing_events`), discordia-messaging (`messaging.billing_events`) | `billing.yaml` |
+| `billing.server_boost_requested` | discordia-billing (firmado con HMAC) | discordia-servers (cola `servers.billing_events`) | `boosts.yaml` |
+| `billing.server_boost_cancelled` | discordia-billing (firmado con HMAC) | discordia-servers (cola `servers.billing_events`) | `boosts.yaml` |
+| `billing.server_boost_removed` | discordia-billing (firmado con HMAC) | discordia-servers (cola `servers.billing_events`) | `boosts.yaml` |
+| `servers.server_boost_applied` | discordia-servers (firmado con HMAC) | discordia-billing (cola `billing.servers_events`) | `boosts.yaml` |
+| `servers.server_boost_rejected` | discordia-servers (firmado con HMAC) | discordia-billing (cola `billing.servers_events`) | `boosts.yaml` |
+| `servers.server_boost_updated` | discordia-servers | discordia-messaging (cola `messaging.server_boosts`) | `boosts.yaml` |
 
 ## Cambiar un evento
 
