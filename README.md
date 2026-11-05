@@ -39,6 +39,8 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `servers.channel_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
 | `servers.server_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`), discordia-admin (cola `admin.servers`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
 | `servers.server_updated` | discordia-servers | discordia-admin (cola `admin.servers`) | `channels.yaml` |
+| `servers.emoji_created` | discordia-servers | discordia-messaging (cola `messaging.server_emojis`) | `channels.yaml` |
+| `servers.emoji_deleted` | discordia-servers | discordia-messaging (cola `messaging.server_emojis`) | `channels.yaml` |
 | `servers.channel_access_revoked` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`) | `channels.yaml` |
 | `servers.role_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
 | `servers.role_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
