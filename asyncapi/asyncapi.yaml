@@ -46,6 +46,20 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  platformHealthChanged:
+    address: platform.health_changed
+    title: platform.health_changed
+    description: |
+      Metrics publica este evento cuando un health check cambia entre
+      `operational` y `degraded`. La audiencia contiene únicamente usuarios
+      staff; notifications lo entrega por sus tópicos privados para sugerir
+      la creación de un incidente.
+    messages:
+      platformHealthChanged:
+        $ref: '#/components/messages/PlatformHealthChanged'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
   memberJoined:
     address: servers.member_joined
     title: servers.member_joined
@@ -504,6 +518,16 @@ operations:
       amqp:
         ack: true
 
+  notificationsReceivePlatformHealthChanged:
+    action: receive
+    title: discordia-notifications consume platform.health_changed
+    description: Entrega la sugerencia de health check a cada usuario staff de la audiencia.
+    channel:
+      $ref: '#/channels/platformHealthChanged'
+    bindings:
+      amqp:
+        ack: true
+
 components:
   channelBindings:
     discordiaEvents:
@@ -527,6 +551,21 @@ components:
             event_id: 3f9c2a1e-6b1d-4c1a-9a3e-2b7f0c8d9e10
             occurred_at: '2026-11-05T03:30:00Z'
             status: degraded
+
+    PlatformHealthChanged:
+      name: PlatformHealthChanged
+      title: Health check de plataforma modificado
+      payload:
+        $ref: '#/components/schemas/PlatformHealthChanged'
+      examples:
+        - payload:
+            event_id: 3f9c2a1e-6b1d-4c1a-9a3e-2b7f0c8d9e10
+            occurred_at: '2026-11-05T03:30:00Z'
+            service: servers
+            previous_status: operational
+            status: degraded
+            consecutive_failures: 2
+            audience_user_ids: [staff-user-id]
 
     MemberJoined:
       name: MemberJoined
@@ -689,6 +728,28 @@ components:
           status:
             type: string
             enum: [operational, degraded, maintenance]
+
+    PlatformHealthChanged:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [service, previous_status, status, consecutive_failures, audience_user_ids]
+          properties:
+            service:
+              type: string
+            previous_status:
+              type: string
+              enum: [unknown, operational, degraded]
+            status:
+              type: string
+              enum: [operational, degraded]
+            consecutive_failures:
+              type: integer
+              minimum: 0
+            audience_user_ids:
+              type: array
+              items:
+                type: string
 
     MemberJoined:
       allOf:
