@@ -15,6 +15,7 @@ decisiones de arquitectura.
 | [`asyncapi/billing.yaml`](asyncapi/billing.yaml) | Dominio billing (estado de Premium de cada usuario, evento firmado con HMAC), que identify y messaging replican para dar los beneficios de Premium. |
 | [`asyncapi/boosts.yaml`](asyncapi/boosts.yaml) | Saga para boostear un servidor entre billing y servers (eventos firmados con HMAC) y foto del nivel, que `messaging` replica. |
 | [`adr/`](adr/) | Registro de decisiones de arquitectura (ADRs). |
+| [`reintentos-y-dlq.md`](reintentos-y-dlq.md) | Política de reintentos con espera creciente y cola de eventos fallidos (DLQ) de todos los consumidores, y cómo revisar y reinyectar un evento apartado. |
 
 Cada dominio es un documento AsyncAPI aparte (no uno solo gigante): mismo
 exchange `discordia.events` compartido, pero cada archivo es autocontenido
