@@ -4,7 +4,7 @@ Qué hace cada servicio cuando un evento que consume no se puede procesar, y có
 
 ## El problema
 
-Antes, un evento válido que fallaba siempre (por ejemplo, la base no respondía o el evento hacía fallar al consumidor) se devolvía a la cola con `nack requeue` sin límite. Se reintentaba para siempre, frenaba a los eventos que venían detrás y no dejaba más rastro que los logs. En `voice-sfu` ni siquiera esperaba entre intentos.
+Antes, un evento válido que fallaba siempre (por ejemplo, la base no respondía o el evento hacía fallar al consumidor) se devolvía a la cola con `nack requeue` sin límite. Se reintentaba para siempre, frenaba a los eventos que venían detrás y no dejaba más rastro que los logs. En `voice-sfu` y en `metrics` ni siquiera esperaba entre intentos.
 
 ## La política
 
@@ -39,6 +39,7 @@ Cada consumidor ya separaba los dos casos antes de este cambio; la DLQ solo act�
 | `identify-service` | `identify.server_memberships`, `identify.admin_events`, `identify.billing_events` |
 | `billing` | `billing.servers_events` |
 | `admin` | `admin.users`, `admin.servers` |
+| `metrics` | `metrics` (el nombre sale de `EVENTS_QUEUE`) |
 | `voice-sfu` | la cola de `servers.*` (`voice.signaling`) y la de suspensiones (`voice.signaling.<instance_id>.suspensions`) |
 
 Quedan afuera, a propósito, las colas efímeras de cada instancia: `messaging.broadcast.<uuid>` y la de presencia de `voice-sfu`. Siempre confirman el mensaje, expiran solas (5 y 10 minutos) y perder un aviso en vivo se compensa leyendo el historial. No hay nada que apartar.
