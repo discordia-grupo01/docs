@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 
 info:
   title: Discordia — Event Bus
-  version: 0.5.0
+  version: 0.6.0
   description: |
     Eventos de dominio que viajan por RabbitMQ entre los servicios de
     Discordia (ADR-07).
@@ -155,6 +155,60 @@ channels:
     messages:
       wordFilterUpdated:
         $ref: '#/components/messages/WordFilterUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  reportUpdated:
+    address: servers.report_updated
+    title: servers.report_updated
+    description: |
+      Foto de un reporte de usuario o de mensaje hecho dentro de un servidor.
+      Existe para el expediente de investigación del backoffice (HU #81,
+      `admin`). `servers` lo publica al crear el reporte (`status: pending`) y
+      al cerrarlo (`resolved` o `dismissed`, con `resolved_at`), en la misma
+      transacción que el cambio. Es la foto completa, no un diff: el
+      consumidor se queda con la de `occurred_at` más nuevo para cada
+      `report_id`. Para los reportes que ya existían, `servers` re-publica una
+      foto por reporte con una migración (backfill, `0034`).
+
+      `kind` dice qué se reportó: con `user` viaja `reported_user_id` y
+      `channel_id`/`message_id` van en `null`; con `message` viajan
+      `channel_id` y `message_id` y `reported_user_id` va en `null` (el autor
+      del mensaje lo resuelve `admin` al leer, cruzando con la actividad de
+      mensajes). Todas las claves viajan siempre.
+
+      **No** lleva quién reportó ni quién resolvió el reporte: el expediente
+      no los necesita (minimización de datos).
+    messages:
+      reportUpdated:
+        $ref: '#/components/messages/ReportUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  moderationActionRecorded:
+    address: servers.moderation_action_recorded
+    title: servers.moderation_action_recorded
+    description: |
+      Se registró una acción de moderación de servidor (ban, revocación de
+      ban, expulsión, silencio o fin de silencio) sobre un usuario. `servers`
+      lo publica una vez por fila de su auditoría de moderación
+      (`moderation_audit_entries`), en la misma transacción, incluido el fin
+      automático de un silencio por expiración. `action_id` es el id de esa
+      fila: sirve para deduplicar. Para las filas que ya existían, `servers`
+      re-publica un evento por fila con una migración (backfill, `0035`).
+
+      Existe aparte de `servers.member_banned`, `member_unbanned`,
+      `member_kicked`, `member_muted` y `member_unmuted` porque esos eventos
+      disparan efectos (cortar sesiones, silenciar, avisar al usuario): un
+      backfill sobre ellos los re-ejecutaría. Este evento solo registra el
+      hecho, para el expediente de investigación del backoffice (HU #81,
+      `admin`).
+
+      **No** lleva quién ejecutó la acción ni el motivo: el expediente no los
+      necesita (minimización de datos).
+    messages:
+      moderationActionRecorded:
+        $ref: '#/components/messages/ModerationActionRecorded'
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
@@ -324,6 +378,24 @@ operations:
       amqp:
         deliveryMode: 2
 
+  publishReportUpdated:
+    action: send
+    title: discordia-servers publica servers.report_updated
+    channel:
+      $ref: '#/channels/reportUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishModerationActionRecorded:
+    action: send
+    title: discordia-servers publica servers.moderation_action_recorded
+    channel:
+      $ref: '#/channels/moderationActionRecorded'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
   publishProfileUpdated:
     action: send
     title: discordia-identify publica users.profile_updated
@@ -471,7 +543,10 @@ operations:
   adminReceiveMemberJoined:
     action: receive
     title: discordia-admin consume servers.member_joined
-    description: Cola `admin.servers`. Suma un miembro al conteo del listado de servidores (HU #32).
+    description: |
+      Cola `admin.servers`. Suma un miembro al conteo del listado de
+      servidores (HU #32) y registra la membresía para la actividad del
+      expediente de investigación (HU #81).
     channel:
       $ref: '#/channels/memberJoined'
     bindings:
@@ -481,9 +556,38 @@ operations:
   adminReceiveMemberLeft:
     action: receive
     title: discordia-admin consume servers.member_left
-    description: Cola `admin.servers`. Resta un miembro del conteo del listado de servidores (HU #32).
+    description: |
+      Cola `admin.servers`. Resta un miembro del conteo del listado de
+      servidores (HU #32) y registra la salida para la actividad del
+      expediente de investigación (HU #81).
     channel:
       $ref: '#/channels/memberLeft'
+    bindings:
+      amqp:
+        ack: true
+
+  adminReceiveReportUpdated:
+    action: receive
+    title: discordia-admin consume servers.report_updated
+    description: |
+      Cola `admin.servers`. Guarda o actualiza el reporte en la réplica del
+      expediente de investigación (HU #81). Aplica la foto solo si su
+      `occurred_at` es más nuevo que el que ya tiene para ese `report_id`.
+    channel:
+      $ref: '#/channels/reportUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  adminReceiveModerationActionRecorded:
+    action: receive
+    title: discordia-admin consume servers.moderation_action_recorded
+    description: |
+      Cola `admin.servers`. Agrega la acción de moderación de servidor al
+      expediente de investigación (HU #81). Es idempotente: la acción se
+      identifica por `action_id`.
+    channel:
+      $ref: '#/channels/moderationActionRecorded'
     bindings:
       amqp:
         ack: true
@@ -654,6 +758,55 @@ components:
             server_id: 3ebead84-ec8c-4fc5-9bfa-09d4301e768f
             words: [tonto, no sirve]
 
+    ReportUpdated:
+      name: ReportUpdated
+      title: Reporte creado o cerrado
+      payload:
+        $ref: '#/components/schemas/ReportUpdated'
+      examples:
+        - name: reporte de mensaje pendiente
+          payload:
+            event_id: 4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8
+            occurred_at: '2026-11-06T13:20:00Z'
+            report_id: 9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            kind: message
+            reported_user_id: null
+            channel_id: 6d5c4b3a-2e1f-4a0b-9c8d-7e6f5a4b3c2d
+            message_id: 01a1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5b
+            reason: Insultos a otro miembro
+            status: pending
+            created_at: '2026-11-06T13:20:00Z'
+            resolved_at: null
+        - name: reporte de usuario resuelto
+          payload:
+            event_id: 7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d
+            occurred_at: '2026-11-07T09:00:00Z'
+            report_id: 2f3e4d5c-6b7a-4980-a1b2-c3d4e5f60718
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            kind: user
+            reported_user_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
+            channel_id: null
+            message_id: null
+            reason: Spam por mensaje directo
+            status: resolved
+            created_at: '2026-11-06T18:45:00Z'
+            resolved_at: '2026-11-07T09:00:00Z'
+
+    ModerationActionRecorded:
+      name: ModerationActionRecorded
+      title: Acción de moderación registrada
+      payload:
+        $ref: '#/components/schemas/ModerationActionRecorded'
+      examples:
+        - payload:
+            event_id: 6c7d8e9f-0a1b-4c2d-9e3f-4a5b6c7d8e9f
+            occurred_at: '2026-11-07T09:05:00Z'
+            action_id: 1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            action: ban
+            target_user_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
+
     ProfileUpdated:
       name: ProfileUpdated
       title: Perfil de usuario actualizado
@@ -698,6 +851,18 @@ components:
             user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
             verified_at: '2026-09-26T14:35:00Z'
 
+    VoiceParticipantJoined:
+      name: VoiceParticipantJoined
+      title: Participante conectado a un canal de voz
+      payload:
+        $ref: '#/components/schemas/VoiceParticipantJoined'
+
+    VoiceParticipantLeft:
+      name: VoiceParticipantLeft
+      title: Participante salió de un canal de voz
+      payload:
+        $ref: '#/components/schemas/VoiceParticipantLeft'
+
     VoicePrivateCall:
       name: VoicePrivateCall
       title: Llamada de voz privada
@@ -725,9 +890,9 @@ components:
         - type: object
           required: [status]
           properties:
-          status:
-            type: string
-            enum: [operational, degraded, maintenance]
+            status:
+              type: string
+              enum: [operational, degraded, maintenance]
 
     PlatformHealthChanged:
       allOf:
@@ -858,6 +1023,75 @@ components:
             user_id: {type: string}
             unmuted_by: {type: string}
             reason: {type: string, enum: [manual, expired]}
+
+    ReportUpdated:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [report_id, server_id, kind, reported_user_id, channel_id, message_id, reason, status, created_at, resolved_at]
+          properties:
+            report_id:
+              type: string
+              format: uuid
+            server_id:
+              type: string
+              format: uuid
+            kind:
+              type: string
+              enum: [user, message]
+              description: Qué se reportó.
+            reported_user_id:
+              type: string
+              format: uuid
+              nullable: true
+              description: Usuario reportado (ID de discordia-identify). `null` si `kind` es `message`.
+            channel_id:
+              type: string
+              format: uuid
+              nullable: true
+              description: Canal del mensaje reportado. `null` si `kind` es `user`.
+            message_id:
+              type: string
+              format: uuid
+              nullable: true
+              description: Mensaje reportado. `null` si `kind` es `user`.
+            reason:
+              type: string
+              minLength: 1
+              maxLength: 512
+              description: Motivo que escribió quien reportó.
+            status:
+              type: string
+              enum: [pending, resolved, dismissed]
+            created_at:
+              type: string
+              format: date-time
+              description: Fecha de creación del reporte, ISO 8601 en UTC.
+            resolved_at:
+              type: string
+              format: date-time
+              nullable: true
+              description: Fecha de cierre del reporte, ISO 8601 en UTC. `null` mientras está `pending`.
+
+    ModerationActionRecorded:
+      allOf:
+        - $ref: '#/components/schemas/Meta'
+        - type: object
+          required: [action_id, server_id, action, target_user_id]
+          properties:
+            action_id:
+              type: string
+              format: uuid
+              description: Id de la fila de `moderation_audit_entries` en servers. Sirve para deduplicar.
+            server_id:
+              type: string
+              format: uuid
+            action:
+              type: string
+              enum: [ban, unban, kick, mute, unmute]
+            target_user_id:
+              type: string
+              description: Usuario sobre el que se aplicó la acción (ID de discordia-identify).
 
     ProfileUpdated:
       allOf:
