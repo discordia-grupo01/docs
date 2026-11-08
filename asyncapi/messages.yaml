@@ -206,9 +206,10 @@ operations:
       Cola `admin.activity`. Registra la actividad de mensajes del autor
       (servidor, canal, mensaje y momento) para el expediente de investigación
       del backoffice (HU #81), y la usa para resolver al autor de un mensaje
-      reportado. **Descarta `content_preview`** (y `channel_name`): no los
-      persiste (minimización de datos). Es idempotente: la entrada se
-      identifica por `message_id`. Los mensajes anteriores al despliegue no se
+      reportado. Guarda `channel_name` (para describir la actividad) pero
+      **descarta `content_preview`**: el texto del mensaje no se persiste ni
+      se loguea (minimización de datos). Es idempotente: la entrada se
+      identifica por `event_id`. Los mensajes anteriores al despliegue no se
       re-publican (un backfill re-dispararía los push de `notifications`), así
       que la actividad arranca con el deploy.
     channel:
