@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 
 info:
   title: Discordia — Messages events
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Eventos de actividad de mensajería que `messaging` (publisher) le avisa a
     `notifications` (consumidor), para que arme los indicadores de no leído, el
@@ -193,6 +193,24 @@ operations:
       cada usuario mencionado al que la mención le avisa según sus
       preferencias (no la guarda si silenció el canal o el servidor, o lo puso
       en `none`).
+    channel:
+      $ref: '#/channels/messageCreated'
+    bindings:
+      amqp:
+        ack: true
+
+  adminReceiveMessageCreated:
+    action: receive
+    title: discordia-admin consume messaging.message_created
+    description: |
+      Cola `admin.activity`. Registra la actividad de mensajes del autor
+      (servidor, canal, mensaje y momento) para el expediente de investigación
+      del backoffice (HU #81), y la usa para resolver al autor de un mensaje
+      reportado. **Descarta `content_preview`** (y `channel_name`): no los
+      persiste (minimización de datos). Es idempotente: la entrada se
+      identifica por `message_id`. Los mensajes anteriores al despliegue no se
+      re-publican (un backfill re-dispararía los push de `notifications`), así
+      que la actividad arranca con el deploy.
     channel:
       $ref: '#/channels/messageCreated'
     bindings:
