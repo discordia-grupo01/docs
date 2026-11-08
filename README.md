@@ -34,6 +34,8 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `servers.member_unbanned` | discordia-servers | — | `asyncapi.yaml` |
 | `servers.member_kicked` | discordia-servers | — (futuro: notificaciones) | `asyncapi.yaml` |
 | `servers.word_filter_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`) | `asyncapi.yaml` |
+| `servers.report_updated` | discordia-servers | discordia-admin (cola `admin.servers`); foto del reporte para el expediente de investigación, sin quien reportó ni quien resolvió | `asyncapi.yaml` |
+| `servers.moderation_action_recorded` | discordia-servers | discordia-admin (cola `admin.servers`); una por fila de auditoría de moderación, sin actor, para el expediente de investigación | `asyncapi.yaml` |
 | `users.profile_updated` | discordia-identify | discordia-servers, discordia-messaging (cola `messaging.channel_lifecycle`), discordia-admin (cola `admin.users`) | `asyncapi.yaml` |
 | `users.account_registered` | discordia-identify | discordia-admin (cola `admin.users`); lleva el email, no suscribir a otros servicios | `asyncapi.yaml` |
 | `users.email_verified` | discordia-identify | discordia-admin (cola `admin.users`); solo para el estado "pendiente" del backoffice, no suscribir a otros servicios | `asyncapi.yaml` |
@@ -49,7 +51,7 @@ Es la fuente de verdad del schema; las implementaciones viven en
 | `servers.member_roles_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
 | `servers.channel_overrides_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
 | `servers.owner_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
-| `messaging.message_created` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); lleva ids, más `channel_name` y `content_preview` opcionales solo para el push | `messages.yaml` |
+| `messaging.message_created` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`), discordia-admin (cola `admin.activity`, descarta `content_preview`); lleva ids, más `channel_name` y `content_preview` opcionales solo para el push | `messages.yaml` |
 | `messaging.direct_message_created` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); lleva ids, más `content_preview` opcional solo para el push | `messages.yaml` |
 | `messaging.message_updated` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); agrega o quita la mención en el historial y avisa al recién mencionado | `messages.yaml` |
 | `messaging.message_deleted` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); borra las entradas del historial del mensaje | `messages.yaml` |

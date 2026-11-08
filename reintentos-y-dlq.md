@@ -38,7 +38,7 @@ Cada consumidor ya separaba los dos casos antes de este cambio; la DLQ solo act√
 | `servers` | `servers.admin_events`, `servers.user_profiles`, `servers.billing_events` |
 | `identify-service` | `identify.server_memberships`, `identify.admin_events`, `identify.billing_events` |
 | `billing` | `billing.servers_events` |
-| `admin` | `admin.users`, `admin.servers` |
+| `admin` | `admin.users`, `admin.servers`, `admin.activity` |
 | `metrics` | `metrics` (el nombre sale de `EVENTS_QUEUE`) |
 | `voice-sfu` | la cola de `servers.*` (`voice.signaling`) y la de suspensiones (`voice.signaling.<instance_id>.suspensions`) |
 

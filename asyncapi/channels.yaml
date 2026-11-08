@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 
 info:
   title: Discordia — Channels events
-  version: 0.3.0
+  version: 0.4.0
   description: |
     Eventos del dominio de canales que viajan por RabbitMQ entre `servers`
     (publisher) y `messaging` / `voice-sfu` (consumidores). Documento aparte de
@@ -69,7 +69,9 @@ channels:
       todos los canales que tenía el servidor para que el consumidor no dependa de
       su propia copia. La eliminación publica, en la misma transacción, un
       `servers.member_left` por cada miembro (para quien lleva la membresía) y
-      este evento.
+      este evento. `admin` purga los reportes, la actividad y las acciones de
+      moderación de servidor de ese servidor (en espejo del borrado físico de
+      `servers`), y conserva las acciones de plataforma de su propio staff.
     messages:
       serverDeleted:
         $ref: '#/components/messages/ServerDeleted'
@@ -329,7 +331,11 @@ operations:
   adminReceiveServerDeleted:
     action: receive
     title: discordia-admin consume servers.server_deleted
-    description: Cola `admin.servers`. Borra el servidor y sus membresías de la réplica del backoffice.
+    description: |
+      Cola `admin.servers`. Borra el servidor y sus membresías de la réplica
+      del backoffice, y purga los reportes, la actividad y las acciones de
+      moderación de servidor de ese servidor del expediente de investigación
+      (HU #81). Conserva las acciones de plataforma de su propio staff.
     channel:
       $ref: '#/channels/serverDeleted'
     bindings:
