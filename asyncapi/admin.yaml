@@ -88,10 +88,10 @@ info:
     suspendido, y un `admin.server_suspended` por cada servidor suspendido; se
     corre después de desplegar un consumidor nuevo.
 
-    Este documento es la fuente de verdad del schema. Las implementaciones
-    viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract)
-    (`admin/events.go`): un cambio de schema se hace primero acá y después se
-    replica allá.
+    Las structs de Go de `events-contract` son la fuente de verdad de los campos, tipos y
+    formatos: de ahí se generan los JSON Schema y se comprueba este documento en el CI
+    (`eventsgen docs-check`). Acá se explica el sentido de cada evento; un cambio de
+    campos se hace primero en `events-contract`.
 
 servers:
   rabbitmq:
@@ -523,14 +523,54 @@ components:
           description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
 
     UserSuspended:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - $ref: '#/components/schemas/SuspensionEvent'
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        user_id:
+          type: string
+          format: uuid
+          description: Usuario suspendido o reactivado (ID de discordia-identify).
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: suspension_version del usuario en admin. Crece con cada suspensión o reactivación; ordena los eventos del mismo usuario.
+        signature:
+          type: string
+          description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
+      required: [event_id, occurred_at, user_id, version, signature]
 
     UserReactivated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - $ref: '#/components/schemas/SuspensionEvent'
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        user_id:
+          type: string
+          format: uuid
+          description: Usuario suspendido o reactivado (ID de discordia-identify).
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: suspension_version del usuario en admin. Crece con cada suspensión o reactivación; ordena los eventos del mismo usuario.
+        signature:
+          type: string
+          description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
+      required: [event_id, occurred_at, user_id, version, signature]
 
     ServerModerationEvent:
       type: object
@@ -550,16 +590,76 @@ components:
           description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
 
     ServerSuspended:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - $ref: '#/components/schemas/ServerModerationEvent'
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+          description: Servidor suspendido, reactivado o a eliminar (ID de discordia-servers).
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: moderation_version del servidor en admin. Crece con cada suspensión, reactivación o eliminación; ordena los eventos del mismo servidor.
+        signature:
+          type: string
+          description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
+      required: [event_id, occurred_at, server_id, version, signature]
 
     ServerReactivated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - $ref: '#/components/schemas/ServerModerationEvent'
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+          description: Servidor suspendido, reactivado o a eliminar (ID de discordia-servers).
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: moderation_version del servidor en admin. Crece con cada suspensión, reactivación o eliminación; ordena los eventos del mismo servidor.
+        signature:
+          type: string
+          description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
+      required: [event_id, occurred_at, server_id, version, signature]
 
     ServerDeletionRequested:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - $ref: '#/components/schemas/ServerModerationEvent'
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+          description: Servidor suspendido, reactivado o a eliminar (ID de discordia-servers).
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: moderation_version del servidor en admin. Crece con cada suspensión, reactivación o eliminación; ordena los eventos del mismo servidor.
+        signature:
+          type: string
+          description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
+      required: [event_id, occurred_at, server_id, version, signature]

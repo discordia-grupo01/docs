@@ -24,10 +24,10 @@ info:
       máscara de bits.
     - Una cola durable por servicio consumidor, con ack manual.
 
-    Este documento es la fuente de verdad del schema. Las implementaciones
-    viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract)
-    (`permissions/events.go` y `permissions/events.ex`): un cambio de schema se
-    hace primero acá y después se replica allá.
+    Las structs de Go de `events-contract` son la fuente de verdad de los campos, tipos y
+    formatos: de ahí se generan los JSON Schema y se comprueba este documento en el CI
+    (`eventsgen docs-check`). Acá se explica el sentido de cada evento; un cambio de
+    campos se hace primero en `events-contract`.
 
 servers:
   rabbitmq:
@@ -379,104 +379,127 @@ components:
         - MANAGE_MESSAGES
 
     RoleUpdated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, role_id, permissions, is_everyone]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            role_id:
-              type: string
-              format: uuid
-            permissions:
-              type: array
-              description: Permisos del rol a nivel servidor, ordenados, sin repetidos. Puede ser vacío, nunca null.
-              uniqueItems: true
-              items:
-                $ref: '#/components/schemas/Permission'
-            is_everyone:
-              type: boolean
-              description: true para el rol `@everyone`, que todo miembro tiene y no se puede borrar.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        role_id:
+          type: string
+          format: uuid
+        permissions:
+          type: array
+          items:
+            type: string
+          description: Permisos del rol a nivel servidor, ordenados, sin repetidos. Puede ser vacío, nunca null.
+        is_everyone:
+          type: boolean
+          description: true para el rol `@everyone`, que todo miembro tiene y no se puede borrar.
+      required: [event_id, occurred_at, server_id, role_id, permissions, is_everyone]
 
     RoleDeleted:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, role_id]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            role_id:
-              type: string
-              format: uuid
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        role_id:
+          type: string
+          format: uuid
+      required: [event_id, occurred_at, server_id, role_id]
 
     MemberRolesUpdated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, user_id, role_ids]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            user_id:
-              type: string
-              description: ID del usuario en discordia-identify.
-            role_ids:
-              type: array
-              description: Todos los roles del miembro, `@everyone` incluido, ordenados, sin repetidos. Nunca null.
-              uniqueItems: true
-              items:
-                type: string
-                format: uuid
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          description: ID del usuario en discordia-identify.
+        role_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Todos los roles del miembro, `@everyone` incluido, ordenados, sin repetidos. Nunca null.
+      required: [event_id, occurred_at, server_id, user_id, role_ids]
 
     ChannelOverridesUpdated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, channel_id, overrides]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            channel_id:
-              type: string
-              format: uuid
-            overrides:
-              type: array
-              description: Un elemento por rol que tiene override en el canal. Vacío si no queda ninguno, nunca null.
-              items:
-                type: object
-                required: [role_id, allow, deny]
-                properties:
-                  role_id:
-                    type: string
-                    format: uuid
-                  allow:
-                    type: array
-                    description: Permisos que el rol gana en este canal. Nunca coincide con `deny`.
-                    uniqueItems: true
-                    items:
-                      $ref: '#/components/schemas/ChannelPermission'
-                  deny:
-                    type: array
-                    description: Permisos que el rol pierde en este canal.
-                    uniqueItems: true
-                    items:
-                      $ref: '#/components/schemas/ChannelPermission'
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        channel_id:
+          type: string
+          format: uuid
+        overrides:
+          type: array
+          items:
+            type: object
+            properties:
+              role_id:
+                type: string
+              allow:
+                type: array
+                items:
+                  type: string
+              deny:
+                type: array
+                items:
+                  type: string
+            required: [role_id, allow, deny]
+          description: Un elemento por rol que tiene override en el canal. Vacío si no queda ninguno, nunca null.
+      required: [event_id, occurred_at, server_id, channel_id, overrides]
 
     OwnerUpdated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, owner_id]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            owner_id:
-              type: string
-              description: ID del dueño en discordia-identify.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        owner_id:
+          type: string
+          description: ID del dueño en discordia-identify.
+      required: [event_id, occurred_at, server_id, owner_id]

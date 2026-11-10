@@ -1,0 +1,1087 @@
+asyncapi: 3.0.0
+info:
+  title: Discordia — Canal interno de messaging
+  version: generated
+  description: 'Eventos que las instancias de `messaging` se mandan entre sí por el exchange `messaging.broadcast` (fanout, una cola durable por instancia) para que cada una empuje el aviso a los sockets que tiene abiertos. Solo los consume `messaging`: no son parte del bus entre servicios. Documento generado desde `events-contract` con `go run ./cmd/eventsgen docs-sync <carpeta asyncapi>`; no se edita a mano (ver ADR 0001, 0004 y 0006 para el diseño).'
+servers:
+  rabbitmq:
+    host: '{host}'
+    protocol: amqp
+    description: Broker RabbitMQ.
+    variables:
+      host:
+        default: localhost:5672
+defaultContentType: application/json
+channels:
+  broadcastNewMessage:
+    address: broadcast.new_message
+    title: broadcast.new_message
+    description: NewMessage is sent to every instance of messaging when a message is created, so each one pushes it to the sockets it holds.
+    messages:
+      broadcastNewMessage:
+        $ref: '#/components/messages/BroadcastNewMessage'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastMessageUpdated:
+    address: broadcast.message_updated
+    title: broadcast.message_updated
+    description: 'MessageUpdated is published when the text of a message in a server channel is edited. It carries the mentions the message has after the edit, so a consumer can add the notification of whoever the edit mentioned and remove the one of whoever it stopped mentioning. OccurredAt is the moment of the edit. Direct messages never publish it: they have no mentions.'
+    messages:
+      broadcastMessageUpdated:
+        $ref: '#/components/messages/BroadcastMessageUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastMessageDeleted:
+    address: broadcast.message_deleted
+    title: broadcast.message_deleted
+    description: MessageDeleted is published when a message is deleted, in a server channel or in a direct conversation (ServerID is empty then and ChannelID is the conversation). OccurredAt is the moment of the deletion. A consumer drops whatever it kept about MessageID.
+    messages:
+      broadcastMessageDeleted:
+        $ref: '#/components/messages/BroadcastMessageDeleted'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastReactionUpdated:
+    address: broadcast.reaction_updated
+    title: broadcast.reaction_updated
+    description: ReactionUpdated is sent when somebody adds or removes a reaction.
+    messages:
+      broadcastReactionUpdated:
+        $ref: '#/components/messages/BroadcastReactionUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastNewDm:
+    address: broadcast.new_dm
+    title: broadcast.new_dm
+    description: NewDM is sent to each participant of a direct conversation when a message arrives.
+    messages:
+      broadcastNewDm:
+        $ref: '#/components/messages/BroadcastNewDm'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastMention:
+    address: broadcast.mention
+    title: broadcast.mention
+    description: Mention is sent to every user a message mentions, wherever they are.
+    messages:
+      broadcastMention:
+        $ref: '#/components/messages/BroadcastMention'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastAccessRevoked:
+    address: broadcast.access_revoked
+    title: broadcast.access_revoked
+    description: AccessRevoked is sent when a user loses access to a server or a channel, so their open sockets leave it.
+    messages:
+      broadcastAccessRevoked:
+        $ref: '#/components/messages/BroadcastAccessRevoked'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastServerLeft:
+    address: broadcast.server_left
+    title: broadcast.server_left
+    description: ServerLeft is sent to a user who stopped being a member, so the client drops the server from its list.
+    messages:
+      broadcastServerLeft:
+        $ref: '#/components/messages/BroadcastServerLeft'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastServerSuspended:
+    address: broadcast.server_suspended
+    title: broadcast.server_suspended
+    description: ServerSuspended is sent to every member when staff suspends the server.
+    messages:
+      broadcastServerSuspended:
+        $ref: '#/components/messages/BroadcastServerSuspended'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastServerReactivated:
+    address: broadcast.server_reactivated
+    title: broadcast.server_reactivated
+    description: ServerReactivated is sent to every member when staff lifts the suspension.
+    messages:
+      broadcastServerReactivated:
+        $ref: '#/components/messages/BroadcastServerReactivated'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastDisconnect:
+    address: broadcast.disconnect
+    title: broadcast.disconnect
+    description: Disconnect makes every instance close the sockets of a user.
+    messages:
+      broadcastDisconnect:
+        $ref: '#/components/messages/BroadcastDisconnect'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastPresenceUpdated:
+    address: broadcast.presence_updated
+    title: broadcast.presence_updated
+    description: PresenceUpdated is sent to whoever should see the connection status of a user.
+    messages:
+      broadcastPresenceUpdated:
+        $ref: '#/components/messages/BroadcastPresenceUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+  broadcastOwnStatusUpdated:
+    address: broadcast.own_status_updated
+    title: broadcast.own_status_updated
+    description: OwnStatusUpdated is sent to a user's own sockets when they change the status they chose.
+    messages:
+      broadcastOwnStatusUpdated:
+        $ref: '#/components/messages/BroadcastOwnStatusUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/messagingBroadcast'
+operations:
+  messagingPublishesBroadcastNewMessage:
+    action: send
+    title: discordia-messaging publica broadcast.new_message
+    channel:
+      $ref: '#/channels/broadcastNewMessage'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastNewMessage:
+    action: receive
+    title: discordia-messaging consume broadcast.new_message
+    channel:
+      $ref: '#/channels/broadcastNewMessage'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastMessageUpdated:
+    action: send
+    title: discordia-messaging publica broadcast.message_updated
+    channel:
+      $ref: '#/channels/broadcastMessageUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastMessageUpdated:
+    action: receive
+    title: discordia-messaging consume broadcast.message_updated
+    channel:
+      $ref: '#/channels/broadcastMessageUpdated'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastMessageDeleted:
+    action: send
+    title: discordia-messaging publica broadcast.message_deleted
+    channel:
+      $ref: '#/channels/broadcastMessageDeleted'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastMessageDeleted:
+    action: receive
+    title: discordia-messaging consume broadcast.message_deleted
+    channel:
+      $ref: '#/channels/broadcastMessageDeleted'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastReactionUpdated:
+    action: send
+    title: discordia-messaging publica broadcast.reaction_updated
+    channel:
+      $ref: '#/channels/broadcastReactionUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastReactionUpdated:
+    action: receive
+    title: discordia-messaging consume broadcast.reaction_updated
+    channel:
+      $ref: '#/channels/broadcastReactionUpdated'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastNewDm:
+    action: send
+    title: discordia-messaging publica broadcast.new_dm
+    channel:
+      $ref: '#/channels/broadcastNewDm'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastNewDm:
+    action: receive
+    title: discordia-messaging consume broadcast.new_dm
+    channel:
+      $ref: '#/channels/broadcastNewDm'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastMention:
+    action: send
+    title: discordia-messaging publica broadcast.mention
+    channel:
+      $ref: '#/channels/broadcastMention'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastMention:
+    action: receive
+    title: discordia-messaging consume broadcast.mention
+    channel:
+      $ref: '#/channels/broadcastMention'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastAccessRevoked:
+    action: send
+    title: discordia-messaging publica broadcast.access_revoked
+    channel:
+      $ref: '#/channels/broadcastAccessRevoked'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastAccessRevoked:
+    action: receive
+    title: discordia-messaging consume broadcast.access_revoked
+    channel:
+      $ref: '#/channels/broadcastAccessRevoked'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastServerLeft:
+    action: send
+    title: discordia-messaging publica broadcast.server_left
+    channel:
+      $ref: '#/channels/broadcastServerLeft'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastServerLeft:
+    action: receive
+    title: discordia-messaging consume broadcast.server_left
+    channel:
+      $ref: '#/channels/broadcastServerLeft'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastServerSuspended:
+    action: send
+    title: discordia-messaging publica broadcast.server_suspended
+    channel:
+      $ref: '#/channels/broadcastServerSuspended'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastServerSuspended:
+    action: receive
+    title: discordia-messaging consume broadcast.server_suspended
+    channel:
+      $ref: '#/channels/broadcastServerSuspended'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastServerReactivated:
+    action: send
+    title: discordia-messaging publica broadcast.server_reactivated
+    channel:
+      $ref: '#/channels/broadcastServerReactivated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastServerReactivated:
+    action: receive
+    title: discordia-messaging consume broadcast.server_reactivated
+    channel:
+      $ref: '#/channels/broadcastServerReactivated'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastDisconnect:
+    action: send
+    title: discordia-messaging publica broadcast.disconnect
+    channel:
+      $ref: '#/channels/broadcastDisconnect'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastDisconnect:
+    action: receive
+    title: discordia-messaging consume broadcast.disconnect
+    channel:
+      $ref: '#/channels/broadcastDisconnect'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastPresenceUpdated:
+    action: send
+    title: discordia-messaging publica broadcast.presence_updated
+    channel:
+      $ref: '#/channels/broadcastPresenceUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastPresenceUpdated:
+    action: receive
+    title: discordia-messaging consume broadcast.presence_updated
+    channel:
+      $ref: '#/channels/broadcastPresenceUpdated'
+    bindings:
+      amqp:
+        ack: true
+  messagingPublishesBroadcastOwnStatusUpdated:
+    action: send
+    title: discordia-messaging publica broadcast.own_status_updated
+    channel:
+      $ref: '#/channels/broadcastOwnStatusUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+  messagingReceivesBroadcastOwnStatusUpdated:
+    action: receive
+    title: discordia-messaging consume broadcast.own_status_updated
+    channel:
+      $ref: '#/channels/broadcastOwnStatusUpdated'
+    bindings:
+      amqp:
+        ack: true
+components:
+  channelBindings:
+    messagingBroadcast:
+      amqp:
+        is: routingKey
+        exchange:
+          name: messaging.broadcast
+          type: fanout
+          durable: true
+          autoDelete: false
+          vhost: /
+  messages:
+    BroadcastNewMessage:
+      name: BroadcastNewMessage
+      title: broadcast.new_message
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastNewMessage'
+      examples:
+        - payload:
+            event: new_message
+            event_id: event-id
+            payload:
+              attachments:
+                - clave: valor
+              channel_id: channel-id
+              client_id: client-id
+              content: content
+              edited: true
+              edited_at: "2026-11-10T15:00:00Z"
+              id: id
+              inserted_at: "2026-11-10T15:00:00Z"
+              mention_everyone: true
+              mention_roles:
+                - mention-roles
+              mentions:
+                - mentions
+              server_id: server-id
+              user_id: user-id
+            topic: channel:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastMessageUpdated:
+      name: BroadcastMessageUpdated
+      title: broadcast.message_updated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastMessageUpdated'
+      examples:
+        - payload:
+            event: message_updated
+            event_id: event-id
+            payload:
+              attachments:
+                - clave: valor
+              channel_id: channel-id
+              client_id: client-id
+              content: content
+              edited: true
+              edited_at: "2026-11-10T15:00:00Z"
+              id: id
+              inserted_at: "2026-11-10T15:00:00Z"
+              mention_everyone: true
+              mention_roles:
+                - mention-roles
+              mentions:
+                - mentions
+              server_id: server-id
+              user_id: user-id
+            topic: channel:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastMessageDeleted:
+      name: BroadcastMessageDeleted
+      title: broadcast.message_deleted
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastMessageDeleted'
+      examples:
+        - payload:
+            event: message_deleted
+            event_id: event-id
+            payload:
+              channel_id: channel-id
+              deleted_at: "2026-11-10T15:00:00Z"
+              id: id
+              server_id: server-id
+            topic: channel:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastReactionUpdated:
+      name: BroadcastReactionUpdated
+      title: broadcast.reaction_updated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastReactionUpdated'
+      examples:
+        - payload:
+            event: reaction_updated
+            event_id: event-id
+            payload:
+              action: action
+              channel_id: channel-id
+              count: 1
+              emoji: emoji
+              message_id: message-id
+              user_id: user-id
+            topic: channel:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastNewDm:
+      name: BroadcastNewDm
+      title: broadcast.new_dm
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastNewDm'
+      examples:
+        - payload:
+            event: new_dm
+            event_id: event-id
+            payload:
+              conversation_id: conversation-id
+              message:
+                attachments:
+                  - clave: valor
+                channel_id: channel-id
+                client_id: client-id
+                content: content
+                edited: true
+                edited_at: "2026-11-10T15:00:00Z"
+                id: id
+                inserted_at: "2026-11-10T15:00:00Z"
+                mention_everyone: true
+                mention_roles:
+                  - mention-roles
+                mentions:
+                  - mentions
+                server_id: server-id
+                user_id: user-id
+              partner_id: partner-id
+            topic: user:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastMention:
+      name: BroadcastMention
+      title: broadcast.mention
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastMention'
+      examples:
+        - payload:
+            event: mention
+            event_id: event-id
+            payload:
+              channel_id: channel-id
+              message:
+                attachments:
+                  - clave: valor
+                channel_id: channel-id
+                client_id: client-id
+                content: content
+                edited: true
+                edited_at: "2026-11-10T15:00:00Z"
+                id: id
+                inserted_at: "2026-11-10T15:00:00Z"
+                mention_everyone: true
+                mention_roles:
+                  - mention-roles
+                mentions:
+                  - mentions
+                server_id: server-id
+                user_id: user-id
+              server_id: server-id
+            topic: user:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastAccessRevoked:
+      name: BroadcastAccessRevoked
+      title: broadcast.access_revoked
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastAccessRevoked'
+      examples:
+        - payload:
+            event: access_revoked
+            event_id: event-id
+            payload:
+              channel_id: channel-id
+              reason: reason
+              server_id: server-id
+              user_id: user-id
+            topic: channel:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastServerLeft:
+      name: BroadcastServerLeft
+      title: broadcast.server_left
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastServerLeft'
+      examples:
+        - payload:
+            event: server_left
+            event_id: event-id
+            payload:
+              server_id: server-id
+            topic: user:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastServerSuspended:
+      name: BroadcastServerSuspended
+      title: broadcast.server_suspended
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastServerSuspended'
+      examples:
+        - payload:
+            event: server_suspended
+            event_id: event-id
+            payload:
+              server_id: server-id
+            topic: user:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastServerReactivated:
+      name: BroadcastServerReactivated
+      title: broadcast.server_reactivated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastServerReactivated'
+      examples:
+        - payload:
+            event: server_reactivated
+            event_id: event-id
+            payload:
+              server_id: server-id
+            topic: user:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastDisconnect:
+      name: BroadcastDisconnect
+      title: broadcast.disconnect
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastDisconnect'
+      examples:
+        - payload:
+            event: disconnect
+            event_id: event-id
+            payload: {}
+            topic: user_socket:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastPresenceUpdated:
+      name: BroadcastPresenceUpdated
+      title: broadcast.presence_updated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastPresenceUpdated'
+      examples:
+        - payload:
+            event: presence_updated
+            event_id: event-id
+            payload:
+              status: status
+              user_id: user-id
+              version: 1
+            topic: presence:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+    BroadcastOwnStatusUpdated:
+      name: BroadcastOwnStatusUpdated
+      title: broadcast.own_status_updated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BroadcastOwnStatusUpdated'
+      examples:
+        - payload:
+            event: own_status_updated
+            event_id: event-id
+            payload:
+              status: status
+              version: 1
+            topic: user:0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+  schemas:
+    BroadcastNewMessage:
+      description: NewMessage is sent to every instance of messaging when a message is created, so each one pushes it to the sockets it holds.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^channel:.+
+        event:
+          type: string
+          enum:
+            - new_message
+        payload:
+          type: object
+          properties:
+            id:
+              type: string
+            channel_id:
+              type: string
+            server_id:
+              type: [string, "null"]
+            user_id:
+              type: string
+            content:
+              type: string
+            inserted_at:
+              type: string
+              format: date-time
+            edited:
+              type: boolean
+            edited_at:
+              type: [string, "null"]
+              format: date-time
+            mentions:
+              type: array
+              items:
+                type: string
+            mention_roles:
+              type: array
+              items:
+                type: string
+            mention_everyone:
+              type: boolean
+            attachments:
+              type: array
+              items:
+                type: object
+                additionalProperties: {}
+            client_id:
+              type: string
+          required:
+            - id
+            - channel_id
+            - server_id
+            - user_id
+            - content
+            - inserted_at
+            - edited
+            - edited_at
+            - mentions
+            - mention_roles
+            - mention_everyone
+            - attachments
+      required: [event_id, topic, event, payload]
+    BroadcastMessageUpdated:
+      description: 'MessageUpdated is published when the text of a message in a server channel is edited. It carries the mentions the message has after the edit, so a consumer can add the notification of whoever the edit mentioned and remove the one of whoever it stopped mentioning. OccurredAt is the moment of the edit. Direct messages never publish it: they have no mentions.'
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^channel:.+
+        event:
+          type: string
+          enum:
+            - message_updated
+        payload:
+          type: object
+          properties:
+            id:
+              type: string
+            channel_id:
+              type: string
+            server_id:
+              type: [string, "null"]
+            user_id:
+              type: string
+            content:
+              type: string
+            inserted_at:
+              type: string
+              format: date-time
+            edited:
+              type: boolean
+            edited_at:
+              type: [string, "null"]
+              format: date-time
+            mentions:
+              type: array
+              items:
+                type: string
+            mention_roles:
+              type: array
+              items:
+                type: string
+            mention_everyone:
+              type: boolean
+            attachments:
+              type: array
+              items:
+                type: object
+                additionalProperties: {}
+            client_id:
+              type: string
+          required:
+            - id
+            - channel_id
+            - server_id
+            - user_id
+            - content
+            - inserted_at
+            - edited
+            - edited_at
+            - mentions
+            - mention_roles
+            - mention_everyone
+            - attachments
+      required: [event_id, topic, event, payload]
+    BroadcastMessageDeleted:
+      description: MessageDeleted is published when a message is deleted, in a server channel or in a direct conversation (ServerID is empty then and ChannelID is the conversation). OccurredAt is the moment of the deletion. A consumer drops whatever it kept about MessageID.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^channel:.+
+        event:
+          type: string
+          enum:
+            - message_deleted
+        payload:
+          type: object
+          properties:
+            id:
+              type: string
+            channel_id:
+              type: string
+            server_id:
+              type: [string, "null"]
+            deleted_at:
+              type: string
+              format: date-time
+          required: [id, channel_id, server_id, deleted_at]
+      required: [event_id, topic, event, payload]
+    BroadcastReactionUpdated:
+      description: ReactionUpdated is sent when somebody adds or removes a reaction.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^channel:.+
+        event:
+          type: string
+          enum:
+            - reaction_updated
+        payload:
+          type: object
+          properties:
+            channel_id:
+              type: string
+            message_id:
+              type: string
+            emoji:
+              type: string
+            user_id:
+              type: string
+            action:
+              type: string
+            count:
+              type: integer
+              minimum: 0
+          required: [channel_id, message_id, emoji, user_id, action, count]
+      required: [event_id, topic, event, payload]
+    BroadcastNewDm:
+      description: NewDM is sent to each participant of a direct conversation when a message arrives.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^user:.+
+        event:
+          type: string
+          enum:
+            - new_dm
+        payload:
+          type: object
+          properties:
+            conversation_id:
+              type: string
+            partner_id:
+              type: string
+            message:
+              type: object
+              properties:
+                id:
+                  type: string
+                channel_id:
+                  type: string
+                server_id:
+                  type: [string, "null"]
+                user_id:
+                  type: string
+                content:
+                  type: string
+                inserted_at:
+                  type: string
+                  format: date-time
+                edited:
+                  type: boolean
+                edited_at:
+                  type: [string, "null"]
+                  format: date-time
+                mentions:
+                  type: array
+                  items:
+                    type: string
+                mention_roles:
+                  type: array
+                  items:
+                    type: string
+                mention_everyone:
+                  type: boolean
+                attachments:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: {}
+                client_id:
+                  type: string
+              required:
+                - id
+                - channel_id
+                - server_id
+                - user_id
+                - content
+                - inserted_at
+                - edited
+                - edited_at
+                - mentions
+                - mention_roles
+                - mention_everyone
+                - attachments
+          required: [conversation_id, partner_id, message]
+      required: [event_id, topic, event, payload]
+    BroadcastMention:
+      description: Mention is sent to every user a message mentions, wherever they are.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^user:.+
+        event:
+          type: string
+          enum:
+            - mention
+        payload:
+          type: object
+          properties:
+            server_id:
+              type: [string, "null"]
+            channel_id:
+              type: string
+            message:
+              type: object
+              properties:
+                id:
+                  type: string
+                channel_id:
+                  type: string
+                server_id:
+                  type: [string, "null"]
+                user_id:
+                  type: string
+                content:
+                  type: string
+                inserted_at:
+                  type: string
+                  format: date-time
+                edited:
+                  type: boolean
+                edited_at:
+                  type: [string, "null"]
+                  format: date-time
+                mentions:
+                  type: array
+                  items:
+                    type: string
+                mention_roles:
+                  type: array
+                  items:
+                    type: string
+                mention_everyone:
+                  type: boolean
+                attachments:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: {}
+                client_id:
+                  type: string
+              required:
+                - id
+                - channel_id
+                - server_id
+                - user_id
+                - content
+                - inserted_at
+                - edited
+                - edited_at
+                - mentions
+                - mention_roles
+                - mention_everyone
+                - attachments
+          required: [server_id, channel_id, message]
+      required: [event_id, topic, event, payload]
+    BroadcastAccessRevoked:
+      description: AccessRevoked is sent when a user loses access to a server or a channel, so their open sockets leave it.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^(channel|presence):.+
+        event:
+          type: string
+          enum:
+            - access_revoked
+        payload:
+          type: object
+          properties:
+            user_id:
+              type: string
+            reason:
+              type: string
+            server_id:
+              type: string
+            channel_id:
+              type: string
+          required: [user_id, reason]
+      required: [event_id, topic, event, payload]
+    BroadcastServerLeft:
+      description: ServerLeft is sent to a user who stopped being a member, so the client drops the server from its list.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^user:.+
+        event:
+          type: string
+          enum:
+            - server_left
+        payload:
+          type: object
+          properties:
+            server_id:
+              type: string
+          required: [server_id]
+      required: [event_id, topic, event, payload]
+    BroadcastServerSuspended:
+      description: ServerSuspended is sent to every member when staff suspends the server.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^user:.+
+        event:
+          type: string
+          enum:
+            - server_suspended
+        payload:
+          type: object
+          properties:
+            server_id:
+              type: string
+          required: [server_id]
+      required: [event_id, topic, event, payload]
+    BroadcastServerReactivated:
+      description: ServerReactivated is sent to every member when staff lifts the suspension.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^user:.+
+        event:
+          type: string
+          enum:
+            - server_reactivated
+        payload:
+          type: object
+          properties:
+            server_id:
+              type: string
+          required: [server_id]
+      required: [event_id, topic, event, payload]
+    BroadcastDisconnect:
+      description: Disconnect makes every instance close the sockets of a user.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^user_socket:.+
+        event:
+          type: string
+          enum:
+            - disconnect
+        payload:
+          type: object
+          properties: {}
+      required: [event_id, topic, event, payload]
+    BroadcastPresenceUpdated:
+      description: PresenceUpdated is sent to whoever should see the connection status of a user.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^(presence|user):.+
+        event:
+          type: string
+          enum:
+            - presence_updated
+        payload:
+          type: object
+          properties:
+            user_id:
+              type: string
+            status:
+              type: string
+            version:
+              type: integer
+              minimum: 0
+          required: [user_id, status, version]
+      required: [event_id, topic, event, payload]
+    BroadcastOwnStatusUpdated:
+      description: OwnStatusUpdated is sent to a user's own sockets when they change the status they chose.
+      type: object
+      properties:
+        event_id:
+          type: string
+        topic:
+          type: string
+          pattern: ^user:.+
+        event:
+          type: string
+          enum:
+            - own_status_updated
+        payload:
+          type: object
+          properties:
+            status:
+              type: string
+            version:
+              type: integer
+              minimum: 0
+          required: [status, version]
+      required: [event_id, topic, event, payload]
