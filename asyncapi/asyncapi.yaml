@@ -17,9 +17,10 @@ info:
       la tienen). No hay replay nativo.
     - Una cola durable por servicio consumidor, con ack manual.
 
-    Este documento es la fuente de verdad del schema. Las implementaciones Go
-    viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract):
-    un cambio de schema se hace primero acá y después se replica allá.
+    Las structs de Go de `events-contract` son la fuente de verdad de los campos, tipos y
+    formatos: de ahí se generan los JSON Schema y se comprueba este documento en el CI
+    (`eventsgen docs-check`). Acá se explica el sentido de cada evento; un cambio de
+    campos se hace primero en `events-contract`.
 
 servers:
   rabbitmq:
@@ -885,297 +886,482 @@ components:
           description: Momento del hecho de negocio, ISO 8601 en UTC.
 
     PlatformStatusChanged:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [status]
-          properties:
-            status:
-              type: string
-              enum: [operational, degraded, maintenance]
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        status:
+          type: string
+          enum:
+            - operational
+            - degraded
+            - maintenance
+      required: [event_id, occurred_at, status]
 
     PlatformHealthChanged:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [service, previous_status, status, consecutive_failures, audience_user_ids]
-          properties:
-            service:
-              type: string
-            previous_status:
-              type: string
-              enum: [unknown, operational, degraded]
-            status:
-              type: string
-              enum: [operational, degraded]
-            consecutive_failures:
-              type: integer
-              minimum: 0
-            audience_user_ids:
-              type: array
-              items:
-                type: string
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        service:
+          type: string
+        previous_status:
+          type: string
+          enum:
+            - unknown
+            - operational
+            - degraded
+        status:
+          type: string
+          enum:
+            - operational
+            - degraded
+        consecutive_failures:
+          type: integer
+          minimum: 0
+        audience_user_ids:
+          type: array
+          items:
+            type: string
+      required: [event_id, occurred_at, service, previous_status, status, consecutive_failures, audience_user_ids]
 
     MemberJoined:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, user_id]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            user_id:
-              type: string
-              description: ID del usuario (emitido por discordia-identify).
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          description: ID del usuario (emitido por discordia-identify).
+      required: [event_id, occurred_at, server_id, user_id]
 
     MemberLeft:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, user_id]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            user_id:
-              type: string
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+      required: [event_id, occurred_at, server_id, user_id]
 
     MemberBanned:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, user_id, banned_by]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            user_id:
-              type: string
-              description: Usuario baneado.
-            banned_by:
-              type: string
-              description: Usuario (owner, administrador o moderador con BAN_MEMBERS) que ejecutó el ban.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          description: Usuario baneado.
+        banned_by:
+          type: string
+          description: Usuario (owner, administrador o moderador con BAN_MEMBERS) que ejecutó el ban.
+      required: [event_id, occurred_at, server_id, user_id, banned_by]
 
     MemberUnbanned:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, user_id, unbanned_by]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            user_id:
-              type: string
-              description: Usuario cuyo ban se revocó.
-            unbanned_by:
-              type: string
-              description: Usuario con BAN_MEMBERS que revocó el ban.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          description: Usuario cuyo ban se revocó.
+        unbanned_by:
+          type: string
+          description: Usuario con BAN_MEMBERS que revocó el ban.
+      required: [event_id, occurred_at, server_id, user_id, unbanned_by]
 
     MemberKicked:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, user_id, kicked_by]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            user_id:
-              type: string
-              description: Usuario expulsado.
-            kicked_by:
-              type: string
-              description: Usuario (owner, administrador o miembro con KICK_MEMBERS) que ejecutó la expulsión.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          description: Usuario expulsado.
+        kicked_by:
+          type: string
+          description: Usuario (owner, administrador o miembro con KICK_MEMBERS) que ejecutó la expulsión.
+      required: [event_id, occurred_at, server_id, user_id, kicked_by]
 
     MemberMuted:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, user_id, muted_by, until_at, reason]
-          properties:
-            server_id: {type: string, format: uuid}
-            user_id: {type: string}
-            muted_by: {type: string}
-            until_at: {type: string, format: date-time}
-            reason: {type: string}
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        muted_by:
+          type: string
+        until_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+      required: [event_id, occurred_at, server_id, user_id, muted_by, until_at, reason]
 
     WordFilterUpdated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, words]
-          properties:
-            server_id: {type: string, format: uuid}
-            words:
-              type: array
-              description: Palabras o frases prohibidas, normalizadas (minúsculas, sin espacios de más). Lista vacía = sin filtro.
-              items: {type: string}
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        words:
+          type: array
+          items:
+            type: string
+          description: Palabras o frases prohibidas, normalizadas (minúsculas, sin espacios de más). Lista vacía = sin filtro.
+      required: [event_id, occurred_at, server_id, words]
 
     MemberUnmuted:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, user_id, unmuted_by, reason]
-          properties:
-            server_id: {type: string, format: uuid}
-            user_id: {type: string}
-            unmuted_by: {type: string}
-            reason: {type: string, enum: [manual, expired]}
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        unmuted_by:
+          type: string
+        reason:
+          type: string
+          enum:
+            - manual
+            - expired
+      required: [event_id, occurred_at, server_id, user_id, unmuted_by, reason]
 
     ReportUpdated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [report_id, server_id, kind, reported_user_id, channel_id, message_id, reason, status, created_at, resolved_at]
-          properties:
-            report_id:
-              type: string
-              format: uuid
-            server_id:
-              type: string
-              format: uuid
-            kind:
-              type: string
-              enum: [user, message]
-              description: Qué se reportó.
-            reported_user_id:
-              type: string
-              format: uuid
-              nullable: true
-              description: Usuario reportado (ID de discordia-identify). `null` si `kind` es `message`.
-            channel_id:
-              type: string
-              format: uuid
-              nullable: true
-              description: Canal del mensaje reportado. `null` si `kind` es `user`.
-            message_id:
-              type: string
-              format: uuid
-              nullable: true
-              description: Mensaje reportado. `null` si `kind` es `user`.
-            reason:
-              type: string
-              minLength: 1
-              maxLength: 512
-              description: Motivo que escribió quien reportó.
-            status:
-              type: string
-              enum: [pending, resolved, dismissed]
-            created_at:
-              type: string
-              format: date-time
-              description: Fecha de creación del reporte, ISO 8601 en UTC.
-            resolved_at:
-              type: string
-              format: date-time
-              nullable: true
-              description: Fecha de cierre del reporte, ISO 8601 en UTC. `null` mientras está `pending`.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        report_id:
+          type: string
+          format: uuid
+        server_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - user
+            - message
+          description: Qué se reportó.
+        reported_user_id:
+          type: [string, "null"]
+          format: uuid
+          description: Usuario reportado (ID de discordia-identify). `null` si `kind` es `message`.
+        channel_id:
+          type: [string, "null"]
+          format: uuid
+          description: Canal del mensaje reportado. `null` si `kind` es `user`.
+        message_id:
+          type: [string, "null"]
+          format: uuid
+          description: Mensaje reportado. `null` si `kind` es `user`.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Motivo que escribió quien reportó.
+        status:
+          type: string
+          enum:
+            - pending
+            - resolved
+            - dismissed
+        created_at:
+          type: string
+          format: date-time
+          description: Fecha de creación del reporte, ISO 8601 en UTC.
+        resolved_at:
+          type: [string, "null"]
+          format: date-time
+          description: Fecha de cierre del reporte, ISO 8601 en UTC. `null` mientras está `pending`.
+      required:
+        - event_id
+        - occurred_at
+        - report_id
+        - server_id
+        - kind
+        - reported_user_id
+        - channel_id
+        - message_id
+        - reason
+        - status
+        - created_at
+        - resolved_at
 
     ModerationActionRecorded:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [action_id, server_id, action, target_user_id]
-          properties:
-            action_id:
-              type: string
-              format: uuid
-              description: Id de la fila de `moderation_audit_entries` en servers. Sirve para deduplicar.
-            server_id:
-              type: string
-              format: uuid
-            action:
-              type: string
-              enum: [ban, unban, kick, mute, unmute]
-            target_user_id:
-              type: string
-              description: Usuario sobre el que se aplicó la acción (ID de discordia-identify).
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        action_id:
+          type: string
+          format: uuid
+          description: Id de la fila de `moderation_audit_entries` en servers. Sirve para deduplicar.
+        server_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum:
+            - ban
+            - unban
+            - kick
+            - mute
+            - unmute
+        target_user_id:
+          type: string
+          description: Usuario sobre el que se aplicó la acción (ID de discordia-identify).
+      required: [event_id, occurred_at, action_id, server_id, action, target_user_id]
 
     ProfileUpdated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [user_id, version, name, avatar_url, description, status_text, status_emoji]
-          properties:
-            user_id:
-              type: string
-              format: uuid
-              description: ID del usuario en discordia-identify.
-            version:
-              type: integer
-              format: int64
-              minimum: 1
-              description: profile_version del usuario en identify. Crece con cada cambio; ordena las fotos del mismo usuario.
-            name:
-              type: string
-            avatar_url:
-              type: string
-              description: URL pública del avatar, o vacío si no tiene.
-            description:
-              type: string
-              description: Vacío si no tiene.
-            status_text:
-              type: string
-              description: Texto del estado personalizado, o vacío si no tiene.
-            status_emoji:
-              type: string
-              description: Emoji del estado personalizado, o vacío si no tiene.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        user_id:
+          type: string
+          format: uuid
+          description: ID del usuario en discordia-identify.
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: profile_version del usuario en identify. Crece con cada cambio; ordena las fotos del mismo usuario.
+        name:
+          type: string
+        avatar_url:
+          type: string
+          description: URL pública del avatar, o vacío si no tiene.
+        description:
+          type: string
+          description: Vacío si no tiene.
+        status_text:
+          type: string
+          description: Texto del estado personalizado, o vacío si no tiene.
+        status_emoji:
+          type: string
+          description: Emoji del estado personalizado, o vacío si no tiene.
+      required:
+        - event_id
+        - occurred_at
+        - user_id
+        - version
+        - name
+        - avatar_url
+        - description
+        - status_text
+        - status_emoji
 
     AccountRegistered:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [user_id, email, name, created_at]
-          properties:
-            user_id:
-              type: string
-              format: uuid
-              description: ID del usuario en discordia-identify.
-            email:
-              type: string
-              format: email
-              description: Email de la cuenta. Dato privado; solo para el backoffice.
-            name:
-              type: string
-              description: Nombre al momento del registro (los cambios posteriores viajan en `users.profile_updated`).
-            created_at:
-              type: string
-              format: date-time
-              description: Fecha de registro de la cuenta, ISO 8601 en UTC.
-            email_verified:
-              type: boolean
-              description: |
-                Si el email ya estaba verificado al crear la cuenta: `true` en
-                las altas por OAuth, `false` en el registro con email. Los
-                eventos anteriores a la versión 0.5.0 no lo traen: el
-                consumidor lo toma como `false`.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        user_id:
+          type: string
+          format: uuid
+          description: ID del usuario en discordia-identify.
+        email:
+          type: string
+          format: email
+          description: Email de la cuenta. Dato privado; solo para el backoffice.
+        name:
+          type: string
+          description: Nombre al momento del registro (los cambios posteriores viajan en `users.profile_updated`).
+        created_at:
+          type: string
+          format: date-time
+          description: Fecha de registro de la cuenta, ISO 8601 en UTC.
+        email_verified:
+          type: boolean
+          description: 'Si el email ya estaba verificado al crear la cuenta: `true` en las altas por OAuth, `false` en el registro con email. Los eventos anteriores a la versión 0.5.0 no lo traen: el consumidor lo toma como `false`.'
+      required: [event_id, occurred_at, user_id, email, name, created_at]
 
     EmailVerified:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [user_id, verified_at]
-          properties:
-            user_id:
-              type: string
-              format: uuid
-              description: ID del usuario en discordia-identify.
-            verified_at:
-              type: string
-              format: date-time
-              description: Momento en que se confirmó el email, ISO 8601 en UTC.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        user_id:
+          type: string
+          format: uuid
+          description: ID del usuario en discordia-identify.
+        verified_at:
+          type: string
+          format: date-time
+          description: Momento en que se confirmó el email, ISO 8601 en UTC.
+      required: [event_id, occurred_at, user_id, verified_at]
 
     VoiceParticipantJoined:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - $ref: '#/components/schemas/VoiceParticipant'
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        event_type:
+          type: string
+          enum:
+            - voice.participant_joined
+            - voice.participant_left
+        server_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        participant_id:
+          type: string
+        name:
+          type: string
+      required: [event_id, occurred_at, event_type, server_id, room_id, participant_id, name]
 
     VoiceParticipantLeft:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - $ref: '#/components/schemas/VoiceParticipant'
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        event_type:
+          type: string
+          enum:
+            - voice.participant_joined
+            - voice.participant_left
+        server_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        participant_id:
+          type: string
+        name:
+          type: string
+      required: [event_id, occurred_at, event_type, server_id, room_id, participant_id, name]
 
     VoiceParticipant:
       type: object
@@ -1188,19 +1374,41 @@ components:
         name: {type: string}
 
     VoicePrivateCall:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [event_type, call_id, conversation_id, caller_id, recipient_id, status]
-          properties:
-            event_type: {type: string, enum: [voice.private_call]}
-            call_id: {type: string}
-            conversation_id: {type: string, format: uuid}
-            caller_id: {type: string}
-            recipient_id: {type: string}
-            room_name: {type: string}
-            status:
-              type: string
-              enum: [ringing, active, rejected, missed, ended]
-            reason: {type: string}
-            ended_by: {type: string}
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        event_type:
+          type: string
+          enum:
+            - voice.private_call
+        call_id:
+          type: string
+        conversation_id:
+          type: string
+          format: uuid
+        caller_id:
+          type: string
+        recipient_id:
+          type: string
+        room_name:
+          type: string
+        status:
+          type: string
+          enum:
+            - ringing
+            - active
+            - rejected
+            - missed
+            - ended
+        reason:
+          type: string
+        ended_by:
+          type: string
+      required: [event_id, occurred_at, event_type, call_id, conversation_id, caller_id, recipient_id, status]

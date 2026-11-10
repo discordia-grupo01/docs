@@ -1,0 +1,64 @@
+name: AsyncAPI
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 12 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contrato:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Comparar los AsyncAPI con events-contract
+        run: go run github.com/discordia-grupo01/events-contract/cmd/eventsgen@latest docs-check asyncapi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validar cada AsyncAPI con la herramienta oficial
+        run: |
+          for f in asyncapi/*.yaml; do
+            npx --yes @asyncapi/cli@2 validate "$f"
+          done
+
+  sincronizar:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Regenerar los schemas desde events-contract
+        run: go run github.com/discordia-grupo01/events-contract/cmd/eventsgen@latest docs-sync asyncapi
+      - name: Abrir un PR si cambió algo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then
+            echo "Los AsyncAPI ya coinciden con events-contract."
+            exit 0
+          fi
+          branch="chore/asyncapi-sync-$(date +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add asyncapi
+          git commit -m "chore: sync the AsyncAPI schemas with events-contract"
+          git push origin "$branch"
+          gh pr create --base develop --head "$branch" \
+            --title "chore: sync the AsyncAPI schemas with events-contract" --body ""
