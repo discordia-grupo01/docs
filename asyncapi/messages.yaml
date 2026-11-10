@@ -25,10 +25,10 @@ info:
       existe solo para armar las notificaciones push. El consumidor lo usa para
       el aviso y **no debe guardarlo**.
 
-    Este documento es la fuente de verdad del schema. Las implementaciones
-    viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract)
-    (`messages/events.go` y `messages/events.ex`): un cambio de schema se hace
-    primero acá y después se replica allá.
+    Las structs de Go de `events-contract` son la fuente de verdad de los campos, tipos y
+    formatos: de ahí se generan los JSON Schema y se comprueba este documento en el CI
+    (`eventsgen docs-check`). Acá se explica el sentido de cada evento; un cambio de
+    campos se hace primero en `events-contract`.
 
 servers:
   rabbitmq:
@@ -413,131 +413,164 @@ components:
           description: Momento del hecho de negocio (cuándo se creó el mensaje), ISO 8601 en UTC.
 
     MessageCreated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, channel_id, message_id, author_id, mentioned_user_ids]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            channel_id:
-              type: string
-              format: uuid
-            message_id:
-              type: string
-              format: uuid
-              description: UUID v7 del mensaje, ordenable por tiempo de creación.
-            author_id:
-              type: string
-              format: uuid
-            mentioned_user_ids:
-              type: array
-              description: Usuarios mencionados y ya validados por `messaging`, sin el autor. Puede ser una lista vacía.
-              items:
-                type: string
-                format: uuid
-            channel_name:
-              type: string
-              description: Nombre del canal. Opcional; solo para armar el aviso push.
-            content_preview:
-              type: string
-              maxLength: 160
-              description: Extracto del texto (unos 140 caracteres), opcional. Solo para armar el aviso push; el consumidor no debe guardarlo.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        channel_id:
+          type: string
+          format: uuid
+        message_id:
+          type: string
+          format: uuid
+          description: UUID v7 del mensaje, ordenable por tiempo de creación.
+        author_id:
+          type: string
+          format: uuid
+        mentioned_user_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Usuarios mencionados y ya validados por `messaging`, sin el autor. Puede ser una lista vacía.
+        channel_name:
+          type: string
+          description: Nombre del canal. Opcional; solo para armar el aviso push.
+        content_preview:
+          type: string
+          maxLength: 160
+          description: Extracto del texto (unos 140 caracteres), opcional. Solo para armar el aviso push; el consumidor no debe guardarlo.
+      required: [event_id, occurred_at, server_id, channel_id, message_id, author_id, mentioned_user_ids]
 
     DirectMessageCreated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [conversation_id, message_id, author_id, recipient_id]
-          properties:
-            conversation_id:
-              type: string
-              description: Id de la conversación (determinístico a partir de los dos participantes).
-            message_id:
-              type: string
-              format: uuid
-              description: UUID v7 del mensaje, ordenable por tiempo de creación.
-            author_id:
-              type: string
-              description: Quien escribió el mensaje.
-            recipient_id:
-              type: string
-              description: El otro participante de la conversación.
-            content_preview:
-              type: string
-              maxLength: 160
-              description: Extracto del texto (unos 140 caracteres), opcional. Solo para armar el aviso push; el consumidor no debe guardarlo.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        conversation_id:
+          type: string
+          description: Id de la conversación (determinístico a partir de los dos participantes).
+        message_id:
+          type: string
+          format: uuid
+          description: UUID v7 del mensaje, ordenable por tiempo de creación.
+        author_id:
+          type: string
+          description: Quien escribió el mensaje.
+        recipient_id:
+          type: string
+          description: El otro participante de la conversación.
+        content_preview:
+          type: string
+          maxLength: 160
+          description: Extracto del texto (unos 140 caracteres), opcional. Solo para armar el aviso push; el consumidor no debe guardarlo.
+      required: [event_id, occurred_at, conversation_id, message_id, author_id, recipient_id]
 
     MessageUpdated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, channel_id, message_id, author_id, mentioned_user_ids]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            channel_id:
-              type: string
-              format: uuid
-            message_id:
-              type: string
-              format: uuid
-            author_id:
-              type: string
-              format: uuid
-            mentioned_user_ids:
-              type: array
-              description: Menciones que el mensaje tiene después de la edición, ya validadas y sin el autor. Puede ser una lista vacía.
-              items:
-                type: string
-                format: uuid
-            channel_name:
-              type: string
-              description: Nombre del canal. Opcional; solo para armar el aviso push.
-            content_preview:
-              type: string
-              maxLength: 160
-              description: Extracto del texto editado (unos 140 caracteres), opcional. Solo para armar el aviso push; el consumidor no debe guardarlo.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        channel_id:
+          type: string
+          format: uuid
+        message_id:
+          type: string
+          format: uuid
+        author_id:
+          type: string
+          format: uuid
+        mentioned_user_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Menciones que el mensaje tiene después de la edición, ya validadas y sin el autor. Puede ser una lista vacía.
+        channel_name:
+          type: string
+          description: Nombre del canal. Opcional; solo para armar el aviso push.
+        content_preview:
+          type: string
+          maxLength: 160
+          description: Extracto del texto editado (unos 140 caracteres), opcional. Solo para armar el aviso push; el consumidor no debe guardarlo.
+      required: [event_id, occurred_at, server_id, channel_id, message_id, author_id, mentioned_user_ids]
 
     MessageDeleted:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [channel_id, message_id, author_id]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-              description: Servidor del canal. No viaja si el mensaje era directo.
-            channel_id:
-              type: string
-              description: Canal del mensaje, o la conversación si era un mensaje directo.
-            message_id:
-              type: string
-              format: uuid
-            author_id:
-              type: string
-              format: uuid
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+          description: Servidor del canal. No viaja si el mensaje era directo.
+        channel_id:
+          type: string
+          description: Canal del mensaje, o la conversación si era un mensaje directo.
+        message_id:
+          type: string
+          format: uuid
+        author_id:
+          type: string
+          format: uuid
+      required: [event_id, occurred_at, channel_id, message_id, author_id]
 
     UserPresenceChanged:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [user_id, connections, do_not_disturb, version]
-          properties:
-            user_id:
-              type: string
-              format: uuid
-            connections:
-              type: string
-              enum: [active, idle, none]
-              description: Estado real de las conexiones del usuario, de todas sus instancias y dispositivos.
-            do_not_disturb:
-              type: boolean
-              description: "`true` si el usuario eligió No molestar. Se manda siempre."
-            version:
-              type: integer
-              format: int64
-              description: Crece con cada cambio del mismo usuario. El consumidor aplica el evento solo si es mayor a la que ya tiene.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        user_id:
+          type: string
+          format: uuid
+        connections:
+          type: string
+          enum:
+            - active
+            - idle
+            - none
+          description: Estado real de las conexiones del usuario, de todas sus instancias y dispositivos.
+        do_not_disturb:
+          type: boolean
+          description: '`true` si el usuario eligió No molestar. Se manda siempre.'
+        version:
+          type: integer
+          format: int64
+          description: Crece con cada cambio del mismo usuario. El consumidor aplica el evento solo si es mayor a la que ya tiene.
+      required: [event_id, occurred_at, user_id, connections, do_not_disturb, version]

@@ -54,10 +54,10 @@ info:
       `billing/events.ex` el binding de Elixir: usarlos en vez de
       reimplementar el algoritmo.
 
-    Este documento es la fuente de verdad del schema. Las implementaciones
-    viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract)
-    (`billing/events.go`): un cambio de schema se hace primero acá y después se
-    replica allá.
+    Las structs de Go de `events-contract` son la fuente de verdad de los campos, tipos y
+    formatos: de ahí se generan los JSON Schema y se comprueba este documento en el CI
+    (`eventsgen docs-check`). Acá se explica el sentido de cada evento; un cambio de
+    campos se hace primero en `events-contract`.
 
 servers:
   rabbitmq:
@@ -186,31 +186,36 @@ components:
           description: Momento del hecho de negocio, ISO 8601 en UTC.
 
     PremiumUpdated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [user_id, active, premium_until, renews, version, signature]
-          properties:
-            user_id:
-              type: string
-              format: uuid
-              description: Usuario (ID de discordia-identify).
-            active:
-              type: boolean
-              description: Si el usuario tiene Premium ahora. Es lo único que el consumidor necesita aplicar.
-            premium_until:
-              type: string
-              format: date-time
-              nullable: true
-              description: Hasta cuándo está pago, en UTC. `null` si nunca pagó.
-            renews:
-              type: boolean
-              description: Si Mercado Pago va a volver a cobrar al llegar `premium_until`.
-            version:
-              type: integer
-              format: int64
-              minimum: 1
-              description: Crece con cada foto del mismo usuario; ordena los eventos.
-            signature:
-              type: string
-              description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        user_id:
+          type: string
+          format: uuid
+          description: Usuario (ID de discordia-identify).
+        active:
+          type: boolean
+          description: Si el usuario tiene Premium ahora. Es lo único que el consumidor necesita aplicar.
+        premium_until:
+          type: [string, "null"]
+          format: date-time
+          description: Hasta cuándo está pago, en UTC. `null` si nunca pagó.
+        renews:
+          type: boolean
+          description: Si Mercado Pago va a volver a cobrar al llegar `premium_until`.
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Crece con cada foto del mismo usuario; ordena los eventos.
+        signature:
+          type: string
+          description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
+      required: [event_id, occurred_at, user_id, active, premium_until, renews, version, signature]

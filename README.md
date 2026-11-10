@@ -13,6 +13,7 @@ decisiones de arquitectura.
 | [`asyncapi/messages.yaml`](asyncapi/messages.yaml) | Dominio messages (actividad de mensajería: mensaje creado en un canal, mensaje directo creado y cambios de presencia del usuario), que `messaging` publica y `notifications` consume para los indicadores de no leído, el historial de notificaciones y las notificaciones push. |
 | [`asyncapi/admin.yaml`](asyncapi/admin.yaml) | Dominio admin (suspensión y reactivación de cuentas, y suspensión, reactivación y eliminación de servidores, por el staff; eventos firmados con HMAC), que identify, servers, messaging y voz consumen para bloquear al usuario o al servidor. |
 | [`asyncapi/billing.yaml`](asyncapi/billing.yaml) | Dominio billing (estado de Premium de cada usuario, evento firmado con HMAC), que identify y messaging replican para dar los beneficios de Premium. |
+| [`asyncapi/messaging-broadcast.yaml`](asyncapi/messaging-broadcast.yaml) | Canal interno de `messaging`: los 13 eventos que sus instancias se mandan por el exchange `messaging.broadcast` (fanout). **Generado** con `eventsgen docs-sync`, no se edita a mano. |
 | [`asyncapi/boosts.yaml`](asyncapi/boosts.yaml) | Saga para boostear un servidor entre billing y servers (eventos firmados con HMAC) y foto del nivel, que `messaging` replica. |
 | [`adr/`](adr/) | Registro de decisiones de arquitectura (ADRs). |
 | [`reintentos-y-dlq.md`](reintentos-y-dlq.md) | Política de reintentos con espera creciente y cola de eventos fallidos (DLQ) de todos los consumidores, y cómo revisar y reinyectar un evento apartado. |
@@ -20,9 +21,10 @@ decisiones de arquitectura.
 Cada dominio es un documento AsyncAPI aparte (no uno solo gigante): mismo
 exchange `discordia.events` compartido, pero cada archivo es autocontenido
 (duplica `Meta`/`channelBindings` en vez de referenciarlos entre archivos).
-Es la fuente de verdad del schema; las implementaciones viven en
-[`events-contract`](https://github.com/discordia-grupo01/events-contract)
-(Go y, cuando aplica, el binding del lenguaje del consumidor).
+Los campos, tipos y formatos de cada evento los define `events-contract` (structs de
+Go): de ahí se generan solos los JSON Schema, los ejemplos y un AsyncAPI completo, y el
+CI de este repo comprueba que estos documentos coincidan. Acá se explica el sentido de
+cada evento.
 
 ## Eventos documentados
 
@@ -71,10 +73,16 @@ Es la fuente de verdad del schema; las implementaciones viven en
 
 ## Cambiar un evento
 
-1. Editar `asyncapi/asyncapi.yaml` y validarlo:
+1. Cambiar la struct (y la etiqueta `contract` si hace falta) en
+   [`events-contract`](https://github.com/discordia-grupo01/events-contract), correr
+   `go run ./cmd/eventsgen gen` y commitear lo generado. El CI de ese repo avisa si el
+   cambio rompe a publicadores o consumidores existentes.
+2. Actualizar el documento de `asyncapi/` que corresponda (la explicación en prosa y los
+   campos) y comprobarlo desde una copia de `events-contract`:
    ```bash
-   npx @asyncapi/cli validate asyncapi/asyncapi.yaml
+   go run ./cmd/eventsgen docs-check ../docs/asyncapi
    ```
-2. Replicar el cambio en `events-contract` y taguear una versión nueva.
-3. Actualizar publisher(s) y consumer(s). Un cambio que rompe compatibilidad
-   (renombrar o sacar un campo) se despliega en publisher y consumers juntos.
+   Para el canal interno de `messaging`: `go run ./cmd/eventsgen docs-sync ../docs/asyncapi`.
+3. Taguear una versión nueva de `events-contract` y actualizar publisher(s) y consumer(s).
+   Un cambio que rompe compatibilidad (renombrar o sacar un campo) se despliega en
+   publisher y consumers juntos, y se hace en dos pasos.

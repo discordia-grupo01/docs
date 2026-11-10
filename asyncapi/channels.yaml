@@ -18,10 +18,10 @@ info:
       tolerar **desorden** (usar `occurred_at`). No hay replay nativo.
     - Una cola durable por servicio consumidor, con ack manual.
 
-    Este documento es la fuente de verdad del schema. Las implementaciones
-    viven en [`events-contract`](https://github.com/discordia-grupo01/events-contract)
-    (`channels/events.go` y `channels/events.ex`): un cambio de schema se hace
-    primero acá y después se replica allá.
+    Las structs de Go de `events-contract` son la fuente de verdad de los campos, tipos y
+    formatos: de ahí se generan los JSON Schema y se comprueba este documento en el CI
+    (`eventsgen docs-check`). Acá se explica el sentido de cada evento; un cambio de
+    campos se hace primero en `events-contract`.
 
 servers:
   rabbitmq:
@@ -499,131 +499,174 @@ components:
           description: Momento del hecho de negocio, ISO 8601 en UTC.
 
     ChannelCreated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, channel_id, name, kind]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            channel_id:
-              type: string
-              format: uuid
-            name:
-              type: string
-            kind:
-              type: string
-              enum: [text, voice]
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        channel_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+            - text
+            - voice
+      required: [event_id, occurred_at, server_id, channel_id, name, kind]
 
     ChannelDeleted:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, channel_id]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            channel_id:
-              type: string
-              format: uuid
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        channel_id:
+          type: string
+          format: uuid
+      required: [event_id, occurred_at, server_id, channel_id]
 
     ServerDeleted:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, channel_ids]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            channel_ids:
-              type: array
-              description: Ids de todos los canales (texto y voz) que tenía el servidor. Puede ser vacío, nunca null.
-              items:
-                type: string
-                format: uuid
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        channel_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Ids de todos los canales (texto y voz) que tenía el servidor. Puede ser vacío, nunca null.
+      required: [event_id, occurred_at, server_id, channel_ids]
 
     EmojiCreated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [emoji_id, server_id, name, animated, image_url]
-          properties:
-            emoji_id:
-              type: string
-              format: uuid
-            server_id:
-              type: string
-              format: uuid
-            name:
-              type: string
-              pattern: '^[A-Za-z0-9_]{2,32}$'
-            animated:
-              type: boolean
-              description: true si la imagen es un GIF; usarlo requiere Premium.
-            image_url:
-              type: string
-              format: uri
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        emoji_id:
+          type: string
+          format: uuid
+        server_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          pattern: ^[A-Za-z0-9_]{2,32}$
+        animated:
+          type: boolean
+          description: true si la imagen es un GIF; usarlo requiere Premium.
+        image_url:
+          type: string
+          format: uri
+      required: [event_id, occurred_at, emoji_id, server_id, name, animated, image_url]
 
     EmojiDeleted:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [emoji_id, server_id, name, animated, image_url]
-          properties:
-            emoji_id:
-              type: string
-              format: uuid
-            server_id:
-              type: string
-              format: uuid
-            name:
-              type: string
-              pattern: '^[A-Za-z0-9_]{2,32}$'
-            animated:
-              type: boolean
-              description: true si la imagen es un GIF; usarlo requiere Premium.
-            image_url:
-              type: string
-              format: uri
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        emoji_id:
+          type: string
+          format: uuid
+        server_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          pattern: ^[A-Za-z0-9_]{2,32}$
+        animated:
+          type: boolean
+          description: true si la imagen es un GIF; usarlo requiere Premium.
+        image_url:
+          type: string
+          format: uri
+      required: [event_id, occurred_at, emoji_id, server_id, name, animated, image_url]
 
     ServerUpdated:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, name, owner_id, created_at]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            name:
-              type: string
-            owner_id:
-              type: string
-              description: ID del dueño del servidor (emitido por discordia-identify).
-            created_at:
-              type: string
-              format: date-time
-              description: Fecha de creación del servidor, ISO 8601 en UTC. No cambia entre fotos.
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        owner_id:
+          type: string
+          description: ID del dueño del servidor (emitido por discordia-identify).
+        created_at:
+          type: string
+          format: date-time
+          description: Fecha de creación del servidor, ISO 8601 en UTC. No cambia entre fotos.
+      required: [event_id, occurred_at, server_id, name, owner_id, created_at]
 
     ChannelAccessRevoked:
-      allOf:
-        - $ref: '#/components/schemas/Meta'
-        - type: object
-          required: [server_id, channel_id, user_ids]
-          properties:
-            server_id:
-              type: string
-              format: uuid
-            channel_id:
-              type: string
-              format: uuid
-            user_ids:
-              type: array
-              description: Usuarios que perdieron el acceso a ese canal. Nunca vacío, sin repetidos.
-              minItems: 1
-              uniqueItems: true
-              items:
-                type: string
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+        channel_id:
+          type: string
+          format: uuid
+        user_ids:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: Usuarios que perdieron el acceso a ese canal. Nunca vacío, sin repetidos.
+      required: [event_id, occurred_at, server_id, channel_id, user_ids]
