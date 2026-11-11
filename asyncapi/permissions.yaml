@@ -112,6 +112,28 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  ownershipTransferUpdated:
+    address: servers.ownership_transfer_updated
+    title: servers.ownership_transfer_updated
+    description: |
+      Cambio de estado de una transferencia de propiedad: el dueño ofrece el
+      servidor (`pending`), el receptor responde (`accepted` o `rejected`), el
+      dueño cancela (`cancelled`) o pasan 24 horas sin respuesta (`expired`, que
+      en la base de `servers` sigue figurando como `rejected`). Es una foto
+      completa y `occurred_at` es el momento del cambio (la creación mientras está
+      pendiente, la resolución después), así que el consumidor se queda con la más
+      nueva de cada `transfer_id`.
+
+      Notifications lo usa para avisar: al receptor mientras está pendiente (entrada
+      en el centro de notificaciones y push) y al dueño anterior cuando el receptor
+      responde o vence (entrada y push). Una cancelación solo cierra la entrada del
+      receptor. Aceptarla publica además `servers.owner_updated`.
+    messages:
+      ownershipTransferUpdated:
+        $ref: '#/components/messages/OwnershipTransferUpdated'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
 operations:
   publishRoleUpdated:
     action: send
@@ -154,6 +176,15 @@ operations:
     title: discordia-servers publica servers.owner_updated
     channel:
       $ref: '#/channels/ownerUpdated'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishOwnershipTransferUpdated:
+    action: send
+    title: discordia-servers publica servers.ownership_transfer_updated
+    channel:
+      $ref: '#/channels/ownershipTransferUpdated'
     bindings:
       amqp:
         deliveryMode: 2
@@ -258,6 +289,20 @@ operations:
       amqp:
         ack: true
 
+  notificationsReceiveOwnershipTransferUpdated:
+    action: receive
+    title: discordia-notifications consume servers.ownership_transfer_updated
+    description: |
+      Cola `notifications.unread_state`. Aplica la foto solo si es la más nueva de
+      la transferencia (reloj `transfer:<id>`), deja una entrada
+      `ownership_transfer` en el historial y manda el push: al receptor cuando está
+      pendiente y al dueño anterior cuando se acepta, se rechaza o vence.
+    channel:
+      $ref: '#/channels/ownershipTransferUpdated'
+    bindings:
+      amqp:
+        ack: true
+
 components:
   channelBindings:
     discordiaEvents:
@@ -339,6 +384,22 @@ components:
             occurred_at: '2026-10-09T12:20:00.000000Z'
             server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
             owner_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+
+    OwnershipTransferUpdated:
+      name: OwnershipTransferUpdated
+      title: Transferencia de propiedad actualizada
+      payload:
+        $ref: '#/components/schemas/OwnershipTransferUpdated'
+      examples:
+        - payload:
+            event_id: 4b5c6d7e-8f90-4a1b-9c2d-3e4f5a6b7c8d
+            occurred_at: '2026-11-11T15:00:00Z'
+            transfer_id: 0c755751-dae3-4e91-a130-175d6f8f675c
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            from_user_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+            to_user_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
+            status: pending
+            created_at: '2026-11-11T15:00:00Z'
 
   schemas:
     Meta:
@@ -503,3 +564,47 @@ components:
           type: string
           description: ID del dueño en discordia-identify.
       required: [event_id, occurred_at, server_id, owner_id]
+
+    OwnershipTransferUpdated:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        transfer_id:
+          type: string
+          format: uuid
+          description: Identificador de la transferencia.
+        server_id:
+          type: string
+          format: uuid
+          description: Servidor cuya propiedad se ofrece.
+        from_user_id:
+          type: string
+          description: Dueño que hace el ofrecimiento.
+        to_user_id:
+          type: string
+          description: Miembro que recibe el ofrecimiento.
+        status:
+          type: string
+          enum:
+            - pending
+            - accepted
+            - rejected
+            - cancelled
+            - expired
+          description: Estado de la transferencia después del cambio. `expired` es un ofrecimiento sin respuesta a las 24 horas.
+        created_at:
+          type: string
+          format: date-time
+          description: Momento en que se hizo el ofrecimiento.
+        resolved_at:
+          type: string
+          format: date-time
+          description: Momento en que se resolvió; no viaja mientras está pendiente.
+      required: [event_id, occurred_at, transfer_id, server_id, from_user_id, to_user_id, status, created_at]
