@@ -25,7 +25,7 @@ channels:
   broadcastMessageUpdated:
     address: broadcast.message_updated
     title: broadcast.message_updated
-    description: 'MessageUpdated is published when the text of a message in a server channel is edited. It carries the mentions the message has after the edit, so a consumer can add the notification of whoever the edit mentioned and remove the one of whoever it stopped mentioning. OccurredAt is the moment of the edit. Direct messages never publish it: they have no mentions.'
+    description: MessageUpdated is sent when the text of a message is edited.
     messages:
       broadcastMessageUpdated:
         $ref: '#/components/messages/BroadcastMessageUpdated'
@@ -34,7 +34,7 @@ channels:
   broadcastMessageDeleted:
     address: broadcast.message_deleted
     title: broadcast.message_deleted
-    description: MessageDeleted is published when a message is deleted, in a server channel or in a direct conversation (ServerID is empty then and ChannelID is the conversation). OccurredAt is the moment of the deletion. A consumer drops whatever it kept about MessageID.
+    description: MessageDeleted is sent when a message is deleted. It carries no content.
     messages:
       broadcastMessageDeleted:
         $ref: '#/components/messages/BroadcastMessageDeleted'
@@ -666,7 +666,7 @@ components:
             - attachments
       required: [event_id, topic, event, payload]
     BroadcastMessageUpdated:
-      description: 'MessageUpdated is published when the text of a message in a server channel is edited. It carries the mentions the message has after the edit, so a consumer can add the notification of whoever the edit mentioned and remove the one of whoever it stopped mentioning. OccurredAt is the moment of the edit. Direct messages never publish it: they have no mentions.'
+      description: MessageUpdated is sent when the text of a message is edited.
       type: object
       properties:
         event_id:
@@ -731,7 +731,7 @@ components:
             - attachments
       required: [event_id, topic, event, payload]
     BroadcastMessageDeleted:
-      description: MessageDeleted is published when a message is deleted, in a server channel or in a direct conversation (ServerID is empty then and ChannelID is the conversation). OccurredAt is the moment of the deletion. A consumer drops whatever it kept about MessageID.
+      description: MessageDeleted is sent when a message is deleted. It carries no content.
       type: object
       properties:
         event_id:
