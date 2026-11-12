@@ -15,6 +15,7 @@ decisiones de arquitectura.
 | [`asyncapi/billing.yaml`](asyncapi/billing.yaml) | Dominio billing (estado de Premium de cada usuario, evento firmado con HMAC), que identify y messaging replican para dar los beneficios de Premium. |
 | [`asyncapi/messaging-broadcast.yaml`](asyncapi/messaging-broadcast.yaml) | Canal interno de `messaging`: los 13 eventos que sus instancias se mandan por el exchange `messaging.broadcast` (fanout). **Generado** con `eventsgen docs-sync`, no se edita a mano. |
 | [`asyncapi/boosts.yaml`](asyncapi/boosts.yaml) | Saga para boostear un servidor entre billing y servers (eventos firmados con HMAC) y foto del nivel, que `messaging` replica. |
+| [`c4/`](c4/) | Diagramas C4: contexto del sistema, contenedores y componentes de `messaging`. |
 | [`adr/`](adr/) | Registro de decisiones de arquitectura (ADRs). |
 | [`reintentos-y-dlq.md`](reintentos-y-dlq.md) | Política de reintentos con espera creciente y cola de eventos fallidos (DLQ) de todos los consumidores, y cómo revisar y reinyectar un evento apartado. |
 
