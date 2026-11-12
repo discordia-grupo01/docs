@@ -134,6 +134,22 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  serversResourceChanged:
+    address: servers.resource_changed
+    title: servers.resource_changed
+    description: |
+      Algo que un cliente tiene en pantalla cambió y ningún otro evento lo avisa: los datos del
+      servidor (nombre, ícono, banner, enlace personalizado), sus canales y categorías
+      (editar, mover, reordenar, crear) o sus roles (reordenar, rol por defecto). No lleva
+      datos, solo qué volver a pedir (`resource`: `server`, `channels` o `roles`), así que un
+      evento repetido o desordenado no hace daño. Notifications lo empuja por WebSocket a los
+      miembros del servidor.
+    messages:
+      serversResourceChanged:
+        $ref: '#/components/messages/ResourceChanged'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
 operations:
   publishRoleUpdated:
     action: send
@@ -303,6 +319,27 @@ operations:
       amqp:
         ack: true
 
+  publishServersResourceChanged:
+    action: send
+    title: discordia-servers publica servers.resource_changed
+    channel:
+      $ref: '#/channels/serversResourceChanged'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  notificationsReceiveServersResourceChanged:
+    action: receive
+    title: discordia-notifications consume servers.resource_changed
+    description: |
+      Cola `notifications.unread_state`. Empuja un aviso `changed` por el tópico del servidor y el
+      cliente vuelve a pedir ese recurso. No guarda nada.
+    channel:
+      $ref: '#/channels/serversResourceChanged'
+    bindings:
+      amqp:
+        ack: true
+
 components:
   channelBindings:
     discordiaEvents:
@@ -400,6 +437,18 @@ components:
             to_user_id: 3f2e1d0c-9b8a-4766-b554-433221100ffe
             status: pending
             created_at: '2026-11-11T15:00:00Z'
+
+    ResourceChanged:
+      name: ResourceChanged
+      title: Cambio en un servidor
+      payload:
+        $ref: '#/components/schemas/ResourceChanged'
+      examples:
+        - payload:
+            event_id: 6a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d
+            occurred_at: '2026-11-11T16:00:00Z'
+            server_id: 0b6f1c8e-7a2d-4e3f-9c1b-5d4a3e2f1a0b
+            resource: channels
 
   schemas:
     Meta:
@@ -608,3 +657,27 @@ components:
           format: date-time
           description: Momento en que se resolvió; no viaja mientras está pendiente.
       required: [event_id, occurred_at, transfer_id, server_id, from_user_id, to_user_id, status, created_at]
+
+    ResourceChanged:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        server_id:
+          type: string
+          format: uuid
+          description: Servidor al que pertenece lo que cambió.
+        resource:
+          type: string
+          enum:
+            - server
+            - channels
+            - roles
+          description: 'Qué volver a pedir: los datos del servidor, sus canales y categorías, o sus roles.'
+      required: [event_id, occurred_at, server_id, resource]

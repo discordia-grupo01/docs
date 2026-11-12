@@ -89,6 +89,21 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  billingAccountChanged:
+    address: billing.account_changed
+    title: billing.account_changed
+    description: |
+      Cambió algo de la cuenta de un usuario que el cliente muestra: el saldo y los movimientos de
+      puntos (`points`), los boosts que tiene (`boosts`) o sus compras (`purchases`). Se publica en
+      la misma transacción que el cambio. No lleva datos ni firma: solo dice qué volver a pedir, así
+      que un evento repetido o desordenado no hace daño. Notifications se lo empuja al usuario por
+      WebSocket. El Premium tiene su propia foto firmada, `billing.premium_updated`.
+    messages:
+      billingAccountChanged:
+        $ref: '#/components/messages/AccountChanged'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
 operations:
   publishPremiumUpdated:
     action: send
@@ -123,6 +138,27 @@ operations:
       `version`.
     channel:
       $ref: '#/channels/premiumUpdated'
+    bindings:
+      amqp:
+        ack: true
+
+  publishBillingAccountChanged:
+    action: send
+    title: discordia-billing publica billing.account_changed
+    channel:
+      $ref: '#/channels/billingAccountChanged'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  notificationsReceiveBillingAccountChanged:
+    action: receive
+    title: discordia-notifications consume billing.account_changed
+    description: |
+      Cola `notifications.unread_state`. Empuja un aviso `changed` al tópico del usuario y el cliente
+      vuelve a pedir su saldo, sus boosts o sus compras. No guarda nada.
+    channel:
+      $ref: '#/channels/billingAccountChanged'
     bindings:
       amqp:
         ack: true
@@ -169,6 +205,18 @@ components:
             renews: false
             version: 4
             signature: 5c7d9e1b3f5a7c9d1e3b9f2b0c4e7a1d3b5f8e6a2c4d2b7e9f1a3c5d7e9b1f3a
+
+    AccountChanged:
+      name: AccountChanged
+      title: Cambio en la cuenta de un usuario
+      payload:
+        $ref: '#/components/schemas/AccountChanged'
+      examples:
+        - payload:
+            event_id: 7b8c9d0e-1f2a-4b3c-9d4e-5f6a7b8c9d0e
+            occurred_at: '2026-11-11T16:00:00Z'
+            user_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+            resource: points
 
   schemas:
     Meta:
@@ -219,3 +267,27 @@ components:
           type: string
           description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
       required: [event_id, occurred_at, user_id, active, premium_until, renews, version, signature]
+
+    AccountChanged:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        user_id:
+          type: string
+          format: uuid
+          description: Usuario al que se le avisa (ID de discordia-identify).
+        resource:
+          type: string
+          enum:
+            - points
+            - boosts
+            - purchases
+          description: 'Qué volver a pedir: el saldo de puntos, los boosts del usuario o sus compras.'
+      required: [event_id, occurred_at, user_id, resource]
