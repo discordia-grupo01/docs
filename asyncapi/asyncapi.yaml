@@ -274,6 +274,27 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  accountRecoveryRequested:
+    address: users.account_recovery_requested
+    title: users.account_recovery_requested
+    description: |
+      Un usuario que perdió su app autenticadora y sus códigos de
+      recuperación pidió que el staff le desactive la verificación en dos
+      pasos. identify lo publica cuando el usuario envía la solicitud desde el
+      paso de verificación del login (con contraseña o con un proveedor
+      federado). Cada usuario tiene como mucho una solicitud pendiente.
+      `message` es el texto opcional que escribió el usuario para el staff
+      (hasta 500 caracteres). No lleva el email: admin ya lo tiene por
+      `users.account_registered`. Existe únicamente para la bandeja de
+      solicitudes del backoffice (`admin`); ningún otro servicio debería
+      consumirlo. Lo resuelven `admin.account_recovery_approved` o
+      `admin.account_recovery_rejected`.
+    messages:
+      accountRecoveryRequested:
+        $ref: '#/components/messages/AccountRecoveryRequested'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
   voiceParticipantJoined:
     address: voice.participant_joined
     title: voice.participant_joined
@@ -424,6 +445,15 @@ operations:
       amqp:
         deliveryMode: 2
 
+  publishAccountRecoveryRequested:
+    action: send
+    title: discordia-identify publica users.account_recovery_requested
+    channel:
+      $ref: '#/channels/accountRecoveryRequested'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
   publishVoiceParticipantJoined:
     action: send
     title: voice-sfu publica voice.participant_joined
@@ -537,6 +567,20 @@ operations:
       `users.account_registered`).
     channel:
       $ref: '#/channels/emailVerified'
+    bindings:
+      amqp:
+        ack: true
+
+  adminReceiveAccountRecoveryRequested:
+    action: receive
+    title: discordia-admin consume users.account_recovery_requested
+    description: |
+      Cola `admin.users`. Guarda la solicitud como pendiente en la bandeja de
+      recuperaciones del backoffice y avisa al staff conectado con
+      `admin.backoffice_changed` (`resource: recovery_requests`). Si ya la
+      tenía (`request_id` repetido), no hace nada.
+    channel:
+      $ref: '#/channels/accountRecoveryRequested'
     bindings:
       amqp:
         ack: true
@@ -851,6 +895,20 @@ components:
             occurred_at: '2026-09-26T14:35:00Z'
             user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
             verified_at: '2026-09-26T14:35:00Z'
+
+    AccountRecoveryRequested:
+      name: AccountRecoveryRequested
+      title: Recuperación de cuenta solicitada
+      payload:
+        $ref: '#/components/schemas/AccountRecoveryRequested'
+      examples:
+        - payload:
+            event_id: 4b5c6d7e-8f9a-4b0c-9d1e-3f4a5b6c7d8e
+            occurred_at: '2026-11-12T13:40:00Z'
+            request_id: 5d6e7f8a-9b0c-4d1e-8f2a-3b4c5d6e7f8a
+            user_id: 7c1e5a3b-9d2f-4b8e-a6c4-3f1e9d7b5a2c
+            message: Cambié de celular y perdí los códigos.
+            requested_at: '2026-11-12T13:40:00Z'
 
     VoiceParticipantJoined:
       name: VoiceParticipantJoined
@@ -1306,6 +1364,35 @@ components:
           format: date-time
           description: Momento en que se confirmó el email, ISO 8601 en UTC.
       required: [event_id, occurred_at, user_id, verified_at]
+
+    AccountRecoveryRequested:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        request_id:
+          type: string
+          format: uuid
+          description: ID de la solicitud en discordia-identify.
+        user_id:
+          type: string
+          format: uuid
+          description: Usuario que pide recuperar la cuenta (ID de discordia-identify).
+        message:
+          type: string
+          maxLength: 500
+          description: Lo que el usuario contó sobre su situación, o vacío si no escribió nada.
+        requested_at:
+          type: string
+          format: date-time
+          description: Momento en que se envió la solicitud, ISO 8601 en UTC.
+      required: [event_id, occurred_at, request_id, user_id, message, requested_at]
 
     VoiceParticipantJoined:
       type: object
