@@ -11,7 +11,7 @@ decisiones de arquitectura.
 | [`asyncapi/channels.yaml`](asyncapi/channels.yaml) | Dominio channels (alta/baja de canales), consumido por `messaging`. |
 | [`asyncapi/permissions.yaml`](asyncapi/permissions.yaml) | Dominio permissions (roles, roles de cada miembro, overrides por canal y dueño del servidor), que `messaging` replica para autorizar sin consultar a `servers`. |
 | [`asyncapi/messages.yaml`](asyncapi/messages.yaml) | Dominio messages (actividad de mensajería: mensaje creado en un canal, mensaje directo creado y cambios de presencia del usuario), que `messaging` publica y `notifications` consume para los indicadores de no leído, el historial de notificaciones y las notificaciones push. |
-| [`asyncapi/admin.yaml`](asyncapi/admin.yaml) | Dominio admin (suspensión y reactivación de cuentas, y suspensión, reactivación y eliminación de servidores, por el staff; eventos firmados con HMAC), que identify, servers, messaging y voz consumen para bloquear al usuario o al servidor. |
+| [`asyncapi/admin.yaml`](asyncapi/admin.yaml) | Dominio admin (suspensión y reactivación de cuentas, suspensión, reactivación y eliminación de servidores, y resolución de las solicitudes de recuperación de cuenta, por el staff; eventos firmados con HMAC), que identify, servers, messaging y voz consumen para bloquear al usuario o al servidor, e identify para desactivar o no la verificación en dos pasos. |
 | [`asyncapi/billing.yaml`](asyncapi/billing.yaml) | Dominio billing (estado de Premium de cada usuario, evento firmado con HMAC), que identify y messaging replican para dar los beneficios de Premium. |
 | [`asyncapi/messaging-broadcast.yaml`](asyncapi/messaging-broadcast.yaml) | Canal interno de `messaging`: los 13 eventos que sus instancias se mandan por el exchange `messaging.broadcast` (fanout). **Generado** con `eventsgen docs-sync`, no se edita a mano. |
 | [`asyncapi/boosts.yaml`](asyncapi/boosts.yaml) | Saga para boostear un servidor entre billing y servers (eventos firmados con HMAC) y foto del nivel, que `messaging` replica. |
@@ -41,6 +41,7 @@ cada evento.
 | `users.profile_updated` | discordia-identify | discordia-servers, discordia-messaging (cola `messaging.channel_lifecycle`), discordia-admin (cola `admin.users`) | `asyncapi.yaml` |
 | `users.account_registered` | discordia-identify | discordia-admin (cola `admin.users`); lleva el email, no suscribir a otros servicios | `asyncapi.yaml` |
 | `users.email_verified` | discordia-identify | discordia-admin (cola `admin.users`); solo para el estado "pendiente" del backoffice, no suscribir a otros servicios | `asyncapi.yaml` |
+| `users.account_recovery_requested` | discordia-identify | discordia-admin (cola `admin.users`); solo para la bandeja de recuperaciones del backoffice, no suscribir a otros servicios | `asyncapi.yaml` |
 | `servers.channel_created` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
 | `servers.channel_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
 | `servers.server_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`), discordia-admin (cola `admin.servers`), discordia-notifications (cola `notifications.unread_state`), discordia-billing (cola `billing.servers_events`) | `channels.yaml` |
@@ -63,6 +64,8 @@ cada evento.
 | `admin.server_suspended` | discordia-admin (firmado con HMAC) | discordia-servers (cola `servers.admin_events`), discordia-messaging (`messaging.admin_events`), discordia-voice-sfu (`voice.signaling.<instance_id>.suspensions`) | `admin.yaml` |
 | `admin.server_reactivated` | discordia-admin (firmado con HMAC) | discordia-servers (cola `servers.admin_events`), discordia-messaging (`messaging.admin_events`) | `admin.yaml` |
 | `admin.server_deletion_requested` | discordia-admin (firmado con HMAC) | discordia-servers (cola `servers.admin_events`), que borra el servidor y publica `servers.server_deleted`; es un pedido, no el hecho consumado | `admin.yaml` |
+| `admin.account_recovery_approved` | discordia-admin (firmado con HMAC) | discordia-identify (cola `identify.admin_events`), que desactiva la verificación en dos pasos y avisa por email | `admin.yaml` |
+| `admin.account_recovery_rejected` | discordia-admin (firmado con HMAC) | discordia-identify (cola `identify.admin_events`), que solo avisa por email | `admin.yaml` |
 | `billing.premium_updated` | discordia-billing (firmado con HMAC) | discordia-identify (cola `identify.billing_events`), discordia-messaging (`messaging.billing_events`) | `billing.yaml` |
 | `billing.server_boost_requested` | discordia-billing (firmado con HMAC) | discordia-servers (cola `servers.billing_events`) | `boosts.yaml` |
 | `billing.server_boost_cancelled` | discordia-billing (firmado con HMAC) | discordia-servers (cola `servers.billing_events`) | `boosts.yaml` |
