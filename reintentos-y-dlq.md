@@ -40,7 +40,7 @@ Cada consumidor ya separaba los dos casos antes de este cambio; la DLQ solo act�
 | `billing` | `billing.servers_events` |
 | `admin` | `admin.users`, `admin.servers`, `admin.activity` |
 | `metrics` | `metrics` (el nombre sale de `EVENTS_QUEUE`) |
-| `voice-sfu` | la cola de `servers.*` (`voice.signaling`) y la de suspensiones (`voice.signaling.<instance_id>.suspensions`) |
+| `voice-sfu` | la cola de comandos (`voice.signaling.<instance_id>.commands`), la réplica (`voice.signaling.<instance_id>.replica`) y la de suspensiones (`voice.signaling.<instance_id>.suspensions`) |
 
 Quedan afuera, a propósito, las colas efímeras de cada instancia: `messaging.broadcast.<uuid>` y la de presencia de `voice-sfu`. Siempre confirman el mensaje, expiran solas (5 y 10 minutos) y perder un aviso en vivo se compensa leyendo el historial. No hay nada que apartar.
 
@@ -78,3 +78,14 @@ Si el evento sigue fallando después de reinyectarlo, vuelve a hacer 5 intentos 
 - No hay una alerta cuando la DLQ tiene mensajes; hoy se revisa a mano (está anotado en la sección de monitoreo de la checklist).
 - La cuenta de intentos es por proceso: con varias instancias de un mismo consumidor, un evento puede sumar más de 5 intentos entre todas antes de apartarse.
 - El motivo de cada fallo no viaja en los headers en ningún servicio: los consumidores deciden "reintentar o no" y el error solo queda en el log. En Go la decisión es un booleano que ya existía, y cambiarlo habría obligado a reescribir cerca de 70 tests.
+
+### Excepción: réplica de autorización de Voice
+
+El consumer `voice.signaling.<instance>.replica` no consume intentos cuando la
+base de la réplica está caída: mantiene el mensaje sin confirmar, espera y lo
+reencola hasta que PostgreSQL vuelva. Un payload inválido sí se publica en la
+DLQ, porque descartarlo silenciosamente dejaría incompleta la autorización.
+Esta excepción no cambia la política de los demás consumers. La cola efímera
+que usa `PresenceConsumer` para `voice.participant_*` y `voice.private_call`
+no tiene DLQ: sus eventos se confirman siempre y el estado activo se recupera
+con `VoicePresenceReconciler` al reconectar.
