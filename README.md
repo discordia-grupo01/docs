@@ -1,91 +1,91 @@
 # docs
 
-Documentación central de Discordia: contratos entre servicios, diagramas y
-decisiones de arquitectura.
+Documentación central de Discordia.
 
-## Contenido
+## Tabla de contenidos
 
-| Carpeta | Qué hay |
+- [Introducción](#introducción)
+- [Pre-requisitos](#pre-requisitos)
+- [Cómo correr](#cómo-correr)
+- [Variables de entorno](#variables-de-entorno)
+- [Comandos Docker](#comandos-docker)
+- [Tests](#tests)
+- [Más documentación](#más-documentación)
+
+## Introducción
+
+Este repositorio reúne la documentación que no pertenece a un solo servicio: cómo se comunican entre sí. No tiene código ni se despliega.
+
+Hoy tiene dos tipos de documentos:
+
+- **Los AsyncAPI** (carpeta [`asyncapi`](asyncapi)): describen cada evento que viaja por RabbitMQ, con quién lo publica, quién lo consume y qué hace con él. Hay un archivo por dominio:
+
+| Archivo | Qué describe |
 |---|---|
-| [`asyncapi/asyncapi.yaml`](asyncapi/asyncapi.yaml) | Dominio membership (altas/bajas/bans de miembros de un servidor). |
-| [`asyncapi/channels.yaml`](asyncapi/channels.yaml) | Dominio channels (alta/baja de canales), consumido por `messaging`. |
-| [`asyncapi/permissions.yaml`](asyncapi/permissions.yaml) | Dominio permissions (roles, roles de cada miembro, overrides por canal y dueño del servidor), que `messaging` replica para autorizar sin consultar a `servers`. |
-| [`asyncapi/messages.yaml`](asyncapi/messages.yaml) | Dominio messages (actividad de mensajería: mensaje creado en un canal, mensaje directo creado y cambios de presencia del usuario), que `messaging` publica y `notifications` consume para los indicadores de no leído, el historial de notificaciones y las notificaciones push. |
-| [`asyncapi/admin.yaml`](asyncapi/admin.yaml) | Dominio admin (suspensión y reactivación de cuentas, suspensión, reactivación y eliminación de servidores, y resolución de las solicitudes de recuperación de cuenta, por el staff; eventos firmados con HMAC), que identify, servers, messaging y voz consumen para bloquear al usuario o al servidor, e identify para desactivar o no la verificación en dos pasos. |
-| [`asyncapi/billing.yaml`](asyncapi/billing.yaml) | Dominio billing (estado de Premium de cada usuario, evento firmado con HMAC), que identify y messaging replican para dar los beneficios de Premium. |
-| [`asyncapi/messaging-broadcast.yaml`](asyncapi/messaging-broadcast.yaml) | Canal interno de `messaging`: los 13 eventos que sus instancias se mandan por el exchange `messaging.broadcast` (fanout). **Generado** con `eventsgen docs-sync`, no se edita a mano. |
-| [`asyncapi/boosts.yaml`](asyncapi/boosts.yaml) | Saga para boostear un servidor entre billing y servers (eventos firmados con HMAC) y foto del nivel, que `messaging` replica. |
-| [`adr/`](adr/) | Registro de decisiones de arquitectura (ADRs). |
-| [`reintentos-y-dlq.md`](reintentos-y-dlq.md) | Política de reintentos con espera creciente y cola de eventos fallidos (DLQ) de todos los consumidores, y cómo revisar y reinyectar un evento apartado. |
+| [`asyncapi.yaml`](asyncapi/asyncapi.yaml) | Membresía: altas, bajas y bans de miembros de un servidor. |
+| [`channels.yaml`](asyncapi/channels.yaml) | Canales: alta y baja de canales y de servidores, y emojis. |
+| [`permissions.yaml`](asyncapi/permissions.yaml) | Roles, permisos y dueño del servidor, que `messaging` replica para autorizar sin consultar a `servers`. |
+| [`messages.yaml`](asyncapi/messages.yaml) | Actividad de mensajería, que `notifications` usa para los no leídos, el historial y el push. |
+| [`admin.yaml`](asyncapi/admin.yaml) | Suspensiones y recuperación de cuentas por el staff, con eventos firmados. |
+| [`billing.yaml`](asyncapi/billing.yaml) | Estado de Premium de cada usuario, con eventos firmados. |
+| [`boosts.yaml`](asyncapi/boosts.yaml) | La saga entre `billing` y `servers` para boostear un servidor. |
+| [`messaging-broadcast.yaml`](asyncapi/messaging-broadcast.yaml) | El canal interno por el que las instancias de `messaging` se pasan los mensajes. Se genera solo, no se edita a mano. |
 
-Cada dominio es un documento AsyncAPI aparte (no uno solo gigante): mismo
-exchange `discordia.events` compartido, pero cada archivo es autocontenido
-(duplica `Meta`/`channelBindings` en vez de referenciarlos entre archivos).
-Los campos, tipos y formatos de cada evento los define `events-contract` (structs de
-Go): de ahí se generan solos los JSON Schema, los ejemplos y un AsyncAPI completo, y el
-CI de este repo comprueba que estos documentos coincidan. Acá se explica el sentido de
-cada evento.
+- **Los documentos de decisiones y de operación**, en la raíz: cómo se reintentan y se apartan los eventos que fallan ([`reintentos-y-dlq.md`](reintentos-y-dlq.md)) y cómo `voice-sfu` pasó a autorizar con su propia copia de datos ([`voice-replica-migration.md`](voice-replica-migration.md)).
 
-## Eventos documentados
+Los campos, tipos y formatos de cada evento los define el repositorio [`events-contract`](https://github.com/discordia-grupo01/events-contract), y de ahí salen los schemas. Acá se explica el sentido de cada evento. Para que las dos cosas no se separen, el CI compara estos archivos contra el contrato.
 
-| Routing key | Publica | Consume | Documento |
-|---|---|---|---|
-| `servers.member_joined` | discordia-servers | discordia-identify, discordia-admin (cola `admin.servers`), discordia-notifications (cola `notifications.unread_state`) | `asyncapi.yaml` |
-| `servers.member_left` | discordia-servers | discordia-identify, discordia-admin (cola `admin.servers`), discordia-notifications (cola `notifications.unread_state`) | `asyncapi.yaml` |
-| `servers.member_banned` | discordia-servers | — (futuro: mensajería, voz, auditoría) | `asyncapi.yaml` |
-| `servers.member_unbanned` | discordia-servers | — | `asyncapi.yaml` |
-| `servers.member_kicked` | discordia-servers | — (futuro: notificaciones) | `asyncapi.yaml` |
-| `servers.word_filter_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`) | `asyncapi.yaml` |
-| `servers.report_updated` | discordia-servers | discordia-admin (cola `admin.servers`); foto del reporte para el expediente de investigación, sin quien reportó ni quien resolvió | `asyncapi.yaml` |
-| `servers.moderation_action_recorded` | discordia-servers | discordia-admin (cola `admin.servers`); una por fila de auditoría de moderación, sin actor, para el expediente de investigación | `asyncapi.yaml` |
-| `users.profile_updated` | discordia-identify | discordia-servers, discordia-messaging (cola `messaging.channel_lifecycle`), discordia-admin (cola `admin.users`) | `asyncapi.yaml` |
-| `users.account_registered` | discordia-identify | discordia-admin (cola `admin.users`); lleva el email, no suscribir a otros servicios | `asyncapi.yaml` |
-| `users.email_verified` | discordia-identify | discordia-admin (cola `admin.users`); solo para el estado "pendiente" del backoffice, no suscribir a otros servicios | `asyncapi.yaml` |
-| `users.account_recovery_requested` | discordia-identify | discordia-admin (cola `admin.users`); solo para la bandeja de recuperaciones del backoffice, no suscribir a otros servicios | `asyncapi.yaml` |
-| `servers.channel_created` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
-| `servers.channel_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`), discordia-notifications (cola `notifications.unread_state`) | `channels.yaml` |
-| `servers.server_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`), discordia-admin (cola `admin.servers`), discordia-notifications (cola `notifications.unread_state`), discordia-billing (cola `billing.servers_events`) | `channels.yaml` |
-| `servers.server_updated` | discordia-servers | discordia-admin (cola `admin.servers`) | `channels.yaml` |
-| `servers.emoji_created` | discordia-servers | discordia-messaging (cola `messaging.server_emojis`) | `channels.yaml` |
-| `servers.emoji_deleted` | discordia-servers | discordia-messaging (cola `messaging.server_emojis`) | `channels.yaml` |
-| `servers.channel_access_revoked` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-voice-sfu (cola `voice.signaling`) | `channels.yaml` |
-| `servers.role_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
-| `servers.role_deleted` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
-| `servers.member_roles_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
-| `servers.channel_overrides_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
-| `servers.owner_updated` | discordia-servers | discordia-messaging (cola `messaging.channel_lifecycle`), discordia-notifications (cola `notifications.unread_state`) | `permissions.yaml` |
-| `messaging.message_created` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`), discordia-admin (cola `admin.activity`, descarta `content_preview`); lleva ids, más `channel_name` y `content_preview` opcionales solo para el push | `messages.yaml` |
-| `messaging.direct_message_created` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); lleva ids, más `content_preview` opcional solo para el push | `messages.yaml` |
-| `messaging.message_updated` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); agrega o quita la mención en el historial y avisa al recién mencionado | `messages.yaml` |
-| `messaging.message_deleted` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); borra las entradas del historial del mensaje | `messages.yaml` |
-| `messaging.user_presence_changed` | discordia-messaging | discordia-notifications (cola `notifications.unread_state`); decide si se manda un push | `messages.yaml` |
-| `admin.user_suspended` | discordia-admin (firmado con HMAC) | discordia-identify (cola `identify.admin_events`), discordia-servers (`servers.admin_events`), discordia-messaging (`messaging.admin_events`), discordia-voice-sfu (`voice.signaling.<instance_id>.suspensions`) | `admin.yaml` |
-| `admin.user_reactivated` | discordia-admin (firmado con HMAC) | los mismos que `admin.user_suspended` | `admin.yaml` |
-| `admin.server_suspended` | discordia-admin (firmado con HMAC) | discordia-servers (cola `servers.admin_events`), discordia-messaging (`messaging.admin_events`), discordia-voice-sfu (`voice.signaling.<instance_id>.suspensions`) | `admin.yaml` |
-| `admin.server_reactivated` | discordia-admin (firmado con HMAC) | discordia-servers (cola `servers.admin_events`), discordia-messaging (`messaging.admin_events`) | `admin.yaml` |
-| `admin.server_deletion_requested` | discordia-admin (firmado con HMAC) | discordia-servers (cola `servers.admin_events`), que borra el servidor y publica `servers.server_deleted`; es un pedido, no el hecho consumado | `admin.yaml` |
-| `admin.account_recovery_approved` | discordia-admin (firmado con HMAC) | discordia-identify (cola `identify.admin_events`), que desactiva la verificación en dos pasos y avisa por email | `admin.yaml` |
-| `admin.account_recovery_rejected` | discordia-admin (firmado con HMAC) | discordia-identify (cola `identify.admin_events`), que solo avisa por email | `admin.yaml` |
-| `billing.premium_updated` | discordia-billing (firmado con HMAC) | discordia-identify (cola `identify.billing_events`), discordia-messaging (`messaging.billing_events`) | `billing.yaml` |
-| `billing.server_boost_requested` | discordia-billing (firmado con HMAC) | discordia-servers (cola `servers.billing_events`) | `boosts.yaml` |
-| `billing.server_boost_cancelled` | discordia-billing (firmado con HMAC) | discordia-servers (cola `servers.billing_events`) | `boosts.yaml` |
-| `billing.server_boost_removed` | discordia-billing (firmado con HMAC) | discordia-servers (cola `servers.billing_events`) | `boosts.yaml` |
-| `servers.server_boost_applied` | discordia-servers (firmado con HMAC) | discordia-billing (cola `billing.servers_events`) | `boosts.yaml` |
-| `servers.server_boost_rejected` | discordia-servers (firmado con HMAC) | discordia-billing (cola `billing.servers_events`) | `boosts.yaml` |
-| `servers.server_boost_updated` | discordia-servers | discordia-messaging (cola `messaging.server_boosts`) | `boosts.yaml` |
+## Pre-requisitos
 
-## Cambiar un evento
+- **Go 1.22**, para comparar los AsyncAPI con el contrato.
+- **Node.js 22**, para validarlos con la herramienta oficial de AsyncAPI.
+- **Docker**, solo si preferís correr esos chequeos sin instalar Go.
 
-1. Cambiar la struct (y la etiqueta `contract` si hace falta) en
-   [`events-contract`](https://github.com/discordia-grupo01/events-contract), correr
-   `go run ./cmd/eventsgen gen` y commitear lo generado. El CI de ese repo avisa si el
-   cambio rompe a publicadores o consumidores existentes.
-2. Actualizar el documento de `asyncapi/` que corresponda (la explicación en prosa y los
-   campos) y comprobarlo desde una copia de `events-contract`:
-   ```bash
-   go run ./cmd/eventsgen docs-check ../docs/asyncapi
-   ```
-   Para el canal interno de `messaging`: `go run ./cmd/eventsgen docs-sync ../docs/asyncapi`.
-3. Taguear una versión nueva de `events-contract` y actualizar publisher(s) y consumer(s).
-   Un cambio que rompe compatibilidad (renombrar o sacar un campo) se despliega en
-   publisher y consumers juntos, y se hace en dos pasos.
+## Cómo correr
+
+No se corre: se edita y se valida. Antes de abrir un pull request, conviene comprobar que los AsyncAPI sigan coincidiendo con el contrato.
+
+Comparar con `events-contract`:
+
+```bash
+go run github.com/discordia-grupo01/events-contract/cmd/eventsgen@latest docs-check asyncapi
+```
+
+Si hay diferencias en los schemas, el mismo programa los regenera:
+
+```bash
+go run github.com/discordia-grupo01/events-contract/cmd/eventsgen@latest docs-sync asyncapi
+```
+
+`docs-sync` solo actualiza los schemas. La explicación de cada evento se escribe a mano. Para que no se atrase, un workflow semanal corre `docs-sync` y abre un pull request si algo cambió.
+
+Validar el formato de cada archivo con la herramienta de AsyncAPI:
+
+```bash
+for f in asyncapi/*.yaml; do npx --yes @asyncapi/cli@2 validate "$f"; done
+```
+
+## Variables de entorno
+
+No usa ninguna.
+
+## Comandos Docker
+
+No tiene `docker-compose.yml`: no es un servicio. Para correr la comparación con el contrato sin instalar Go:
+
+```bash
+docker run --rm -v "$PWD":/app -w /app golang:1.22-alpine sh -c \
+  "apk add --no-cache git >/dev/null && go run github.com/discordia-grupo01/events-contract/cmd/eventsgen@latest docs-check asyncapi"
+```
+
+## Tests
+
+No tiene tests propios. En cada pull request, en cada push a `develop` o `main` y una vez por semana, el CI hace dos cosas:
+
+- Compara los AsyncAPI con `events-contract` (`docs-check`) y falla si los schemas no coinciden con el contrato.
+- Valida cada archivo con la herramienta oficial de AsyncAPI.
+
+## Más documentación
+
+- [`events-contract`](https://github.com/discordia-grupo01/events-contract): el contrato de los eventos, de donde salen los schemas.
+- El README de cada servicio explica qué eventos publica y consume.
