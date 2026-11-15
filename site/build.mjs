@@ -52,19 +52,35 @@ function tableValue(md, label) {
   return m ? m[1].trim() : "";
 }
 
+const ICONS = {
+  "": '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  adr: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  diagramas: '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/>',
+  openapi: '<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/>',
+  asyncapi: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+  operacion: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  menu: '<path d="M4 12h16"/><path d="M4 18h16"/><path d="M4 6h16"/>',
+  close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+};
+const icon = (name, size = 20) => `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+
 function layout({ title, base, sectionId, sidebarTitle, sidebarItems, activePath, body, wide, head = "", scripts = "" }) {
-  const menu = [{ id: "", title: "Introducción", text: "De qué trata el proyecto y quiénes lo hicieron.", href: "index.html" }]
-    .concat(SECTIONS.map((s) => ({ ...s, href: `${s.id}/index.html` })))
+  const entries = [{ id: "", title: "Introducción", href: "index.html" }].concat(SECTIONS.map((s) => ({ ...s, href: `${s.id}/index.html` })));
+  const nav = entries
     .map((s) => {
-      const current = (s.id || "") === (sectionId || "") ? ' aria-current="page"' : "";
-      return `<a href="${base}${s.href}"${current}><strong>${esc(s.title)}</strong><span>${esc(s.text)}</span></a>`;
+      const isSection = (s.id || "") === (sectionId || "");
+      const current = isSection && (!sidebarItems || activePath === s.href);
+      const link = `<a class="nav-item${isSection ? " is-section" : ""}" href="${base}${s.href}"${current ? ' aria-current="page"' : ""}>${icon(s.id)}<span>${esc(s.title)}</span></a>`;
+      const sub =
+        isSection && sidebarItems
+          ? `<div class="nav-sub">${sidebarItems.map((i) => `<a href="${base}${i.href}"${i.href === activePath ? ' aria-current="page"' : ""}>${esc(i.label)}</a>`).join("")}</div>`
+          : "";
+      return link + sub;
     })
     .join("");
-  const sidebar = sidebarItems
-    ? `<nav class="sidebar" aria-label="${esc(sidebarTitle)}"><h2>${esc(sidebarTitle)}</h2>${sidebarItems
-        .map((i) => `<a href="${base}${i.href}"${i.href === activePath ? ' aria-current="page"' : ""}>${esc(i.label)}</a>`)
-        .join("")}</nav>`
-    : "";
+  const crumb = (entries.find((s) => (s.id || "") === (sectionId || "")) || entries[0]).title;
   return `<!doctype html>
 <html lang="es" data-theme="dark">
 <head>
@@ -79,21 +95,25 @@ function layout({ title, base, sectionId, sidebarTitle, sidebarItems, activePath
 ${head}
 </head>
 <body>
-<header class="header">
-  <a class="brand" href="${base}index.html">Discordia <small>Documentación</small></a>
-  <div class="header-actions">
-    <button class="btn" id="theme-toggle" type="button" aria-label="Cambiar entre tema oscuro y claro">Tema</button>
-    <div class="dropdown" id="sections-dropdown">
-      <button class="btn" type="button" aria-haspopup="true" aria-expanded="false">Secciones <span aria-hidden="true">▾</span></button>
-      <div class="dropdown-menu">${menu}</div>
-    </div>
+<div class="app" id="app">
+<aside class="nav" id="nav" aria-label="Menú lateral">
+  <div class="nav-brand">
+    <a class="brand" href="${base}index.html">Discordia <small>Documentación</small></a>
+    <button class="icon-btn nav-close" id="nav-close" type="button" aria-label="Cerrar menú">${icon("close")}</button>
   </div>
+  <nav class="nav-list" aria-label="Navegación principal">${nav}</nav>
+</aside>
+<div class="scrim" id="scrim"></div>
+<div class="main-col">
+<header class="header">
+  <button class="icon-btn nav-open" id="nav-open" type="button" aria-label="Abrir menú" aria-controls="nav" aria-expanded="false">${icon("menu")}</button>
+  <span class="crumb">${esc(crumb)}</span>
+  <button class="icon-btn" id="theme-toggle" type="button" aria-label="Cambiar entre tema oscuro y claro"><span class="when-dark">${icon("sun")}</span><span class="when-light">${icon("moon")}</span></button>
 </header>
-<div class="layout">
-${sidebar}
 <main class="content ${wide ? "wide" : "prose"}">
 ${body}
 </main>
+</div>
 </div>
 <script src="${base}assets/site.js"></script>
 ${scripts}
