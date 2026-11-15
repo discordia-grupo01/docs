@@ -33,6 +33,8 @@ Hoy tiene dos tipos de documentos:
 
 - **Los documentos de decisiones y de operación**, en la raíz: cómo se reintentan y se apartan los eventos que fallan ([`reintentos-y-dlq.md`](reintentos-y-dlq.md)) y cómo `voice-sfu` pasó a autorizar con su propia copia de datos ([`voice-replica-migration.md`](voice-replica-migration.md)).
 
+Todo esto se publica como un sitio con la introducción del proyecto, los ADRs, los diagramas C4, los OpenAPI de los servicios y los AsyncAPI: <https://discordia-grupo01.github.io/docs/>. Se genera solo desde este repositorio (carpeta [`site`](site)) y desde la rama `main` de cada servicio.
+
 Los campos, tipos y formatos de cada evento los define el repositorio [`events-contract`](https://github.com/discordia-grupo01/events-contract), y de ahí salen los schemas. Acá se explica el sentido de cada evento. Para que las dos cosas no se separen, el CI compara estos archivos contra el contrato.
 
 ## Pre-requisitos
@@ -58,6 +60,16 @@ go run github.com/discordia-grupo01/events-contract/cmd/eventsgen@latest docs-sy
 ```
 
 `docs-sync` solo actualiza los schemas. La explicación de cada evento se escribe a mano. Para que no se atrase, un workflow semanal corre `docs-sync` y abre un pull request si algo cambió.
+
+Generar el sitio y verlo en local (necesita Node.js 22). Con `build:local` los OpenAPI se leen de los repositorios hermanos; con `build` se descargan de GitHub:
+
+```bash
+cd site
+npm ci
+npm run build:local
+```
+
+El resultado queda en `site/dist`.
 
 Validar el formato de cada archivo con la herramienta de AsyncAPI:
 
