@@ -1,0 +1,262 @@
+import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { load } from "js-yaml";
+import { marked } from "marked";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(here, "..");
+const dist = path.join(here, "dist");
+const org = "discordia-grupo01";
+
+const TEAM = ["Juana Galli", "Alexia Aroa", "Facundo Madotta", "Fabricio Batastini", "Manuel Peñalva", "Mora Lema"];
+
+const SERVICES = [
+  { repo: "identify-service", title: "Identidad", text: "Registro, login, sesiones, 2FA y perfil." },
+  { repo: "servers", title: "Servidores", text: "Servidores, canales, roles y permisos, y moderación." },
+  { repo: "messaging", title: "Mensajería", text: "Mensajes, mensajes directos, menciones y estado de actividad." },
+  { repo: "notifications", title: "Notificaciones", text: "No leídos, historial, preferencias y push." },
+  { repo: "billing", title: "Pagos", text: "Premium, puntos y boosts de servidores." },
+  { repo: "admin", title: "Administración", text: "API del backoffice: suspensiones y expediente." },
+  { repo: "metrics", title: "Métricas", text: "Actividad de servidores y estado de la plataforma." },
+  { repo: "voice-sfu", title: "Voz", text: "Salas de voz, tokens y llamadas privadas." },
+];
+
+const OPERATION_DOCS = [
+  { file: "reintentos-y-dlq.md", slug: "reintentos-y-dlq" },
+  { file: "voice-replica-migration.md", slug: "voice-replica" },
+];
+
+const SECTIONS = [
+  { id: "adr", title: "ADRs", text: "Decisiones de arquitectura y sus alternativas." },
+  { id: "diagramas", title: "Diagramas", text: "Diagramas C4, despliegue y flujos principales." },
+  { id: "openapi", title: "OpenAPI", text: "La API REST de cada servicio." },
+  { id: "asyncapi", title: "AsyncAPI", text: "Los eventos entre servicios por RabbitMQ." },
+  { id: "operacion", title: "Operación", text: "Reintentos, colas de eventos fallidos y réplicas." },
+];
+
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+async function readText(file) {
+  return readFile(file, "utf8");
+}
+
+function firstHeading(md, fallback) {
+  const m = md.match(/^#\s+(.+)$/m);
+  return m ? m[1].trim() : fallback;
+}
+
+function tableValue(md, label) {
+  const m = md.match(new RegExp(`\\*\\*${label}:\\*\\*\\s*(.+)`, "i"));
+  return m ? m[1].trim() : "";
+}
+
+function layout({ title, base, sectionId, sidebarTitle, sidebarItems, activePath, body, wide, head = "", scripts = "" }) {
+  const menu = [{ id: "", title: "Introducción", text: "De qué trata el proyecto y quiénes lo hicieron.", href: "index.html" }]
+    .concat(SECTIONS.map((s) => ({ ...s, href: `${s.id}/index.html` })))
+    .map((s) => {
+      const current = (s.id || "") === (sectionId || "") ? ' aria-current="page"' : "";
+      return `<a href="${base}${s.href}"${current}><strong>${esc(s.title)}</strong><span>${esc(s.text)}</span></a>`;
+    })
+    .join("");
+  const sidebar = sidebarItems
+    ? `<nav class="sidebar" aria-label="${esc(sidebarTitle)}"><h2>${esc(sidebarTitle)}</h2>${sidebarItems
+        .map((i) => `<a href="${base}${i.href}"${i.href === activePath ? ' aria-current="page"' : ""}>${esc(i.label)}</a>`)
+        .join("")}</nav>`
+    : "";
+  return `<!doctype html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)} · Discordia</title>
+<script>try{var t=localStorage.getItem("discordia-docs-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="${base}assets/style.css">
+${head}
+</head>
+<body>
+<header class="header">
+  <a class="brand" href="${base}index.html">Discordia <small>Documentación</small></a>
+  <div class="header-actions">
+    <button class="btn" id="theme-toggle" type="button" aria-label="Cambiar entre tema oscuro y claro">Tema</button>
+    <div class="dropdown" id="sections-dropdown">
+      <button class="btn" type="button" aria-haspopup="true" aria-expanded="false">Secciones <span aria-hidden="true">▾</span></button>
+      <div class="dropdown-menu">${menu}</div>
+    </div>
+  </div>
+</header>
+<div class="layout">
+${sidebar}
+<main class="content ${wide ? "wide" : "prose"}">
+${body}
+</main>
+</div>
+<script src="${base}assets/site.js"></script>
+${scripts}
+</body>
+</html>
+`;
+}
+
+async function writePage(rel, html) {
+  const file = path.join(dist, rel);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, html);
+}
+
+function listPage(items, mapRow) {
+  return `<div class="list">${items.map(mapRow).join("")}</div>`;
+}
+
+async function buildIntro() {
+  const md = await readText(path.join(here, "content", "intro.md"));
+  const body = `<div class="hero"><h1>Discordia</h1><p class="lead">Plataforma de comunidades con servidores, canales de texto y voz, mensajes directos y Premium. Documentación técnica del proyecto.</p></div>
+<div class="cards">${SECTIONS.map((s) => `<a class="card" href="${s.id}/index.html"><h3>${esc(s.title)}</h3><p>${esc(s.text)}</p></a>`).join("")}</div>
+<div class="md">${marked.parse(md)}<ul class="team">${TEAM.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>`;
+  await writePage("index.html", layout({ title: "Introducción", base: "", sectionId: "", body }));
+}
+
+async function buildAdrs() {
+  const dir = path.join(root, "adr");
+  const files = existsSync(dir) ? (await readdir(dir)).filter((f) => /^\d{3}-.*\.md$/.test(f)).sort() : [];
+  const items = [];
+  for (const f of files) {
+    const md = await readText(path.join(dir, f));
+    const num = f.slice(0, 3);
+    const title = firstHeading(md, f).replace(/^ADR[\s-]*\d+\s*:\s*/i, "").replace(/`/g, "");
+    items.push({ num, slug: f.replace(/\.md$/, ""), title, status: tableValue(md, "Estado").replace(/`/g, "").split(/[.(]/)[0].trim(), date: tableValue(md, "Fecha"), md });
+  }
+  const side = items.map((i) => ({ href: `adr/${i.slug}.html`, label: `${i.num} · ${i.title}` }));
+  const index = `<div class="md"><h1>Decisiones de arquitectura</h1><p>Cada ADR explica un problema real del proyecto, qué se decidió y por qué, y qué alternativas se descartaron.</p></div>${listPage(items, (i) => `<a class="row" href="${i.slug}.html"><span class="num">${i.num}</span><span class="title">${esc(i.title)}</span><span class="meta">${esc(i.status)}${i.date ? " · " + esc(i.date) : ""}</span></a>`)}`;
+  await writePage("adr/index.html", layout({ title: "ADRs", base: "../", sectionId: "adr", sidebarTitle: "ADRs", sidebarItems: side, activePath: "adr/index.html", body: index }));
+  for (const i of items) {
+    await writePage(`adr/${i.slug}.html`, layout({ title: `ADR ${i.num}`, base: "../", sectionId: "adr", sidebarTitle: "ADRs", sidebarItems: side, activePath: `adr/${i.slug}.html`, body: `<article class="md">${marked.parse(i.md)}</article>` }));
+  }
+  return items.length;
+}
+
+async function fetchSpec(repo) {
+  if (process.env.OPENAPI_LOCAL) {
+    const file = path.resolve(root, "..", repo, "openapi.yaml");
+    return existsSync(file) ? readText(file) : null;
+  }
+  const res = await fetch(`https://raw.githubusercontent.com/${org}/${repo}/main/openapi.yaml`);
+  return res.ok ? res.text() : null;
+}
+
+async function buildOpenApi() {
+  const found = [];
+  for (const s of SERVICES) {
+    const text = await fetchSpec(s.repo);
+    if (!text) {
+      console.warn(`aviso: no se encontró el openapi.yaml de ${s.repo}`);
+      continue;
+    }
+    const spec = load(text);
+    await mkdir(path.join(dist, "openapi"), { recursive: true });
+    await writeFile(path.join(dist, "openapi", `${s.repo}.yaml`), text);
+    found.push({ ...s, version: spec?.info?.version || "", paths: Object.keys(spec?.paths || {}).length });
+  }
+  if (found.length === 0) throw new Error("No se pudo leer ningún openapi.yaml");
+  const side = found.map((s) => ({ href: `openapi/${s.repo}.html`, label: s.title }));
+  const index = `<div class="md"><h1>APIs REST</h1><p>Cada servicio publica su contrato OpenAPI en su repositorio. Esta página lo lee de la rama <code>main</code> en cada actualización del sitio.</p></div>${listPage(found, (s) => `<a class="row" href="${s.repo}.html"><span class="title">${esc(s.title)} <span class="badge">${esc(s.repo)}</span></span><span class="meta">${s.paths} rutas · ${esc(s.text)}</span></a>`)}`;
+  await writePage("openapi/index.html", layout({ title: "OpenAPI", base: "../", sectionId: "openapi", sidebarTitle: "OpenAPI", sidebarItems: side, activePath: "openapi/index.html", body: index }));
+  for (const s of found) {
+    const body = `<div class="viewer-note"><span>${esc(s.title)} · <code>${esc(s.repo)}</code>${s.version ? " · versión " + esc(s.version) : ""}</span><a href="${s.repo}.yaml">Descargar openapi.yaml</a></div><div id="viewer"></div>`;
+    await writePage(`openapi/${s.repo}.html`, layout({
+      title: `OpenAPI · ${s.title}`, base: "../", sectionId: "openapi", sidebarTitle: "OpenAPI", sidebarItems: side, activePath: `openapi/${s.repo}.html`, body, wide: true,
+      scripts: `<script src="https://cdn.jsdelivr.net/npm/redoc@2.5.1/bundles/redoc.standalone.js"></script><script>initOpenApi("${s.repo}.yaml");</script>`,
+    }));
+  }
+  return found.length;
+}
+
+async function buildAsyncApi() {
+  const dir = path.join(root, "asyncapi");
+  const files = (await readdir(dir)).filter((f) => /^[\w-]+\.yaml$/.test(f)).sort();
+  const items = [];
+  for (const f of files) {
+    const text = await readText(path.join(dir, f));
+    const spec = load(text);
+    const slug = f.replace(/\.yaml$/, "");
+    const description = String(spec?.info?.description || "").trim().split(/\n\s*\n/)[0].replace(/\s+/g, " ");
+    items.push({ slug, file: f, text, title: spec?.info?.title || slug, description, channels: Object.keys(spec?.channels || {}).length });
+  }
+  await mkdir(path.join(dist, "asyncapi"), { recursive: true });
+  const side = items.map((i) => ({ href: `asyncapi/${i.slug}.html`, label: i.title.replace(/^Discordia\s*[—-]\s*/, "") }));
+  const index = `<div class="md"><h1>Eventos</h1><p>Los servicios se avisan los cambios por RabbitMQ, en el exchange <code>discordia.events</code>. Cada documento describe un dominio: qué eventos hay, quién los publica y quién los consume. Los campos salen del repositorio <code>events-contract</code>.</p></div>${listPage(items, (i) => `<a class="row" href="${i.slug}.html"><span class="title">${esc(i.title)}</span><span class="meta">${i.channels} canales</span></a>`)}`;
+  await writePage("asyncapi/index.html", layout({ title: "AsyncAPI", base: "../", sectionId: "asyncapi", sidebarTitle: "AsyncAPI", sidebarItems: side, activePath: "asyncapi/index.html", body: index }));
+  for (const i of items) {
+    await writeFile(path.join(dist, "asyncapi", i.file), i.text);
+    const body = `<div class="viewer-note"><span>${esc(i.title)}</span><a href="${i.file}">Descargar ${esc(i.file)}</a></div><div id="viewer"></div>`;
+    await writePage(`asyncapi/${i.slug}.html`, layout({
+      title: `AsyncAPI · ${i.title}`, base: "../", sectionId: "asyncapi", sidebarTitle: "AsyncAPI", sidebarItems: side, activePath: `asyncapi/${i.slug}.html`, body, wide: true,
+      head: `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@asyncapi/react-component@3.2.3/styles/default.min.css">`,
+      scripts: `<script src="https://cdn.jsdelivr.net/npm/@asyncapi/react-component@3.2.3/browser/standalone/index.js"></script><script>initAsyncApi("${i.file}");</script>`,
+    }));
+  }
+  return items.length;
+}
+
+const DIAGRAMS = [
+  { file: "c4-1-contexto.png", group: "C4", title: "Nivel 1 · Contexto", text: "Discordia como una sola caja: quién la usa y con qué sistemas de terceros se relaciona." },
+  { file: "c4-2-contenedores.png", group: "C4", title: "Nivel 2 · Contenedores", text: "Las piezas que se despliegan por separado, cada servicio con su base y el bus de eventos." },
+  { file: "c4-3-messaging-una-instancia.png", group: "C4", title: "Nivel 3 · messaging (una instancia)", text: "Cómo está hecho messaging por dentro: quién entra, qué reglas aplica, dónde guarda y cómo avisa." },
+  { file: "c4-3-messaging-dos-instancias.png", group: "C4", title: "Nivel 3 · messaging (dos instancias)", text: "Lo propio de cada instancia y lo que comparten: Mongo, el outbox en Postgres y RabbitMQ." },
+  { file: "c4-3-messaging-flujo-entre-instancias.png", group: "C4", title: "Nivel 3 · messaging: un mensaje entre dos instancias", text: "El camino de un mensaje desde quien lo envía, conectado a una instancia, hasta quien lo recibe, en otra." },
+  { file: "c4-3-voice-signaling.png", group: "C4", title: "Nivel 3 · voice-sfu (signaling)", text: "El servicio que autoriza las salas de voz y emite los tokens; el audio va directo a LiveKit." },
+  { file: "despliegue.png", group: "Despliegue y flujos", title: "Despliegue", text: "Dónde corre cada pieza y cómo llega ahí." },
+  { file: "flujo-compra-de-premium.png", group: "Despliegue y flujos", title: "Flujo: compra de Premium", text: "Suscripción en Mercado Pago y cómo se enteran los demás servicios, con eventos firmados." },
+  { file: "flujo-entrar-a-un-canal-de-voz.png", group: "Despliegue y flujos", title: "Flujo: entrar a un canal de voz", text: "Token de signaling, conexión directa a LiveKit y aviso de presencia." },
+  { file: "flujo-suspension-por-el-staff.png", group: "Despliegue y flujos", title: "Flujo: suspensión por el staff", text: "Cuatro servicios bloquean la cuenta sin consultarle a admin." },
+  { file: "mapa-de-eventos.png", group: "Despliegue y flujos", title: "Mapa de eventos", text: "Quién publica cada evento y quién lo consume, según el catálogo de events-contract." },
+  { file: "resiliencia-reintentos-y-dlq.png", group: "Despliegue y flujos", title: "Resiliencia: reintentos y DLQ", text: "Qué pasa cuando un evento no se puede procesar." },
+];
+
+async function buildDiagramas() {
+  const dir = path.join(root, "diagramas");
+  const items = DIAGRAMS.filter((d) => existsSync(path.join(dir, d.file))).map((d) => ({ ...d, slug: d.file.replace(/\.png$/, "") }));
+  if (!items.length) return 0;
+  await cp(dir, path.join(dist, "diagramas"), { recursive: true });
+  const side = items.map((i) => ({ href: `diagramas/${i.slug}.html`, label: i.title }));
+  const groups = [...new Set(items.map((i) => i.group))];
+  const index = `<div class="md"><h1>Diagramas</h1><p>Los tres niveles del modelo C4 y los flujos que explican cómo trabajan los servicios entre sí.</p></div>${groups
+    .map((g) => `<div class="md"><h2>${esc(g)}</h2></div>${listPage(items.filter((i) => i.group === g), (i) => `<a class="row" href="${i.slug}.html"><span class="title">${esc(i.title)}</span><span class="meta">${esc(i.text)}</span></a>`)}`)
+    .join("")}`;
+  await writePage("diagramas/index.html", layout({ title: "Diagramas", base: "../", sectionId: "diagramas", sidebarTitle: "Diagramas", sidebarItems: side, activePath: "diagramas/index.html", body: index }));
+  for (const i of items) {
+    const body = `<div class="md"><h1>${esc(i.title)}</h1><p>${esc(i.text)}</p></div><figure class="diagram"><a href="${i.file}" target="_blank" rel="noopener"><img src="${i.file}" alt="${esc(i.title)}: ${esc(i.text)}" loading="lazy"></a><figcaption><a href="${i.file}" target="_blank" rel="noopener">Abrir en tamaño completo</a></figcaption></figure>`;
+    await writePage(`diagramas/${i.slug}.html`, layout({ title: i.title, base: "../", sectionId: "diagramas", sidebarTitle: "Diagramas", sidebarItems: side, activePath: `diagramas/${i.slug}.html`, body }));
+  }
+  return items.length;
+}
+
+async function buildOperation() {
+  const items = [];
+  for (const d of OPERATION_DOCS) {
+    const file = path.join(root, d.file);
+    if (!existsSync(file)) continue;
+    const md = await readText(file);
+    items.push({ slug: d.slug, title: firstHeading(md, d.slug), md });
+  }
+  const side = items.map((i) => ({ href: `operacion/${i.slug}.html`, label: i.title }));
+  const index = `<div class="md"><h1>Operación</h1><p>Documentos para operar el sistema.</p></div>${listPage(items, (i) => `<a class="row" href="${i.slug}.html"><span class="title">${esc(i.title)}</span></a>`)}`;
+  await writePage("operacion/index.html", layout({ title: "Operación", base: "../", sectionId: "operacion", sidebarTitle: "Operación", sidebarItems: side, activePath: "operacion/index.html", body: index }));
+  for (const i of items) {
+    await writePage(`operacion/${i.slug}.html`, layout({ title: i.title, base: "../", sectionId: "operacion", sidebarTitle: "Operación", sidebarItems: side, activePath: `operacion/${i.slug}.html`, body: `<article class="md">${marked.parse(i.md)}</article>` }));
+  }
+  return items.length;
+}
+
+await rm(dist, { recursive: true, force: true });
+await mkdir(dist, { recursive: true });
+await cp(path.join(here, "assets"), path.join(dist, "assets"), { recursive: true });
+await writeFile(path.join(dist, ".nojekyll"), "");
+
+await buildIntro();
+const counts = { adr: await buildAdrs(), diagramas: await buildDiagramas(), openapi: await buildOpenApi(), asyncapi: await buildAsyncApi(), operacion: await buildOperation() };
+console.log("sitio generado en", dist, counts);
