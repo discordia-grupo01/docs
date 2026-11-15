@@ -15,22 +15,22 @@
     });
   }
 
-  var dropdown = document.getElementById("sections-dropdown");
-  if (dropdown) {
-    var button = dropdown.querySelector("button");
-    function close() { dropdown.classList.remove("open"); button.setAttribute("aria-expanded", "false"); }
-    button.addEventListener("click", function (event) {
-      event.stopPropagation();
-      var open = dropdown.classList.toggle("open");
-      button.setAttribute("aria-expanded", open ? "true" : "false");
-    });
-    document.addEventListener("click", function (event) {
-      if (!dropdown.contains(event.target)) close();
-    });
-    document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") close();
-    });
+  var app = document.getElementById("app");
+  var openBtn = document.getElementById("nav-open");
+  function setNav(open) {
+    app.classList.toggle("nav-is-open", open);
+    if (openBtn) openBtn.setAttribute("aria-expanded", open ? "true" : "false");
   }
+  if (openBtn) openBtn.addEventListener("click", function () { setNav(true); });
+  var closeBtn = document.getElementById("nav-close");
+  if (closeBtn) closeBtn.addEventListener("click", function () { setNav(false); });
+  var scrim = document.getElementById("scrim");
+  if (scrim) scrim.addEventListener("click", function () { setNav(false); });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") setNav(false);
+  });
+  var current = document.querySelector('.nav-sub a[aria-current="page"]');
+  if (current && current.scrollIntoView) current.scrollIntoView({ block: "center" });
 })();
 
 function discordiaColors() {
@@ -46,6 +46,8 @@ function initOpenApi(specUrl) {
     specUrl,
     {
       hideDownloadButton: false,
+      scrollYOffset: ".header",
+      hideHostname: true,
       expandResponses: "200,201",
       theme: {
         colors: {
@@ -62,7 +64,12 @@ function initOpenApi(specUrl) {
           code: { fontFamily: "ui-monospace, Menlo, Consolas, monospace", color: c.dark ? "#a9d8a0" : "#2e7531", backgroundColor: c.dark ? "#14212f" : "#f1ece1" }
         },
         sidebar: { backgroundColor: c.panel, textColor: c.text, activeTextColor: c.accent, groupItems: { textTransform: "none" } },
-        rightPanel: { backgroundColor: c.dark ? "#0f1922" : "#245c6b", textColor: "#f5f2eb" },
+        rightPanel: {
+          backgroundColor: c.dark ? "#0f1922" : "#245c6b",
+          textColor: "#f5f2eb",
+          servers: { overlay: { backgroundColor: c.dark ? "#14212f" : "#1d4e5a", textColor: "#f5f2eb" }, url: { backgroundColor: c.dark ? "#0b141c" : "#173f49" } }
+        },
+        codeBlock: { backgroundColor: c.dark ? "#0b141c" : "#173f49" },
         schema: { nestedBackground: c.card, typeNameColor: c.muted, typeTitleColor: c.text }
       }
     },
