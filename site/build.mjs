@@ -1,5 +1,6 @@
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { load } from "js-yaml";
@@ -9,6 +10,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const dist = path.join(here, "dist");
 const org = "discordia-grupo01";
+
+const assetVersion = createHash("sha1")
+  .update(await readFile(path.join(here, "assets", "style.css")))
+  .update(await readFile(path.join(here, "assets", "site.js")))
+  .digest("hex")
+  .slice(0, 8);
 
 const TEAM = ["Juana Galli", "Alexia Aroa", "Facundo Madotta", "Fabricio Batastini", "Manuel Peñalva", "Mora Lema"];
 
@@ -91,7 +98,7 @@ function layout({ title, base, sectionId, sidebarTitle, sidebarItems, activePath
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="${base}assets/style.css">
+<link rel="stylesheet" href="${base}assets/style.css?v=${assetVersion}">
 ${head}
 </head>
 <body>
@@ -115,7 +122,7 @@ ${body}
 </main>
 </div>
 </div>
-<script src="${base}assets/site.js"></script>
+<script src="${base}assets/site.js?v=${assetVersion}"></script>
 ${scripts}
 </body>
 </html>
