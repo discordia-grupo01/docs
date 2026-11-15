@@ -1,0 +1,13 @@
+{
+  "name": "discordia-docs-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:local": "OPENAPI_LOCAL=1 node build.mjs"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "marked": "^15.0.0"
+  }
+}
