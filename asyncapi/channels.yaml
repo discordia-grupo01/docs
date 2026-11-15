@@ -644,6 +644,9 @@ components:
           type: string
           format: date-time
           description: Fecha de creación del servidor, ISO 8601 en UTC. No cambia entre fotos.
+        icon_url:
+          type: string
+          description: 'Dirección del ícono tal como la guarda servers: URL pública de Supabase Storage o ruta del gateway (`/v1/servers/{id}/icon?v=...`). Vacío si no tiene ícono. Los eventos anteriores a la versión 0.22.0 no lo traen: el consumidor lo toma como vacío.'
       required: [event_id, occurred_at, server_id, name, owner_id, created_at]
 
     ChannelAccessRevoked:
