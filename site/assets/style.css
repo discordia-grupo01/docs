@@ -303,6 +303,9 @@ h1, h2, h3, h4 { font-family: var(--font-head); line-height: 1.25; letter-spacin
 .aui-dark .aui-root th,
 .aui-dark .aui-root strong { color: var(--text) !important; }
 
+.oa-dark .react-tabs__tab--selected { background-color: rgba(45, 122, 140, 0.35) !important; }
+.oa-dark select, .oa-dark input { background-color: var(--bg-card) !important; color: var(--text) !important; border-color: var(--border-strong) !important; }
+
 .diagram { margin: 24px 0 0; max-width: 1200px; }
 .diagram img { display: block; width: 100%; height: auto; border: 1px solid var(--border-strong); border-radius: 14px; background: #fbf9f5; }
 .diagram figcaption { margin-top: 10px; font-size: 14px; }
