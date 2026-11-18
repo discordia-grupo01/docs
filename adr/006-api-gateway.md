@@ -11,7 +11,7 @@ El enunciado exige un API Gateway como punto único de entrada al sistema, que c
 Adoptar **Kong** como API Gateway único, en **modo declarativo (DB-less)**: La configuración de Services, Routes y Plugins vive como `kong.yml` versionado en `discordia-gateway`, sin necesidad de una base de datos propia para Kong (resuelve la duda de "Postgres o Cassandra" del stack: no hace falta ninguna).
 
 - **Enrutamiento**: Por prefijo de path hacia el servicio correspondiente (`/api/v1/auth/*` → discordia-identify, `/api/v1/servers/*` y `/api/v1/channels/*` → discordia-servers, etc.), usando Kong Routes + Services.
-- **Autenticación**: Plugin `jwt` de Kong, validando localmente con la clave pública RSA que firma discordia-identify (ver ADR-005), Kong nunca llama al servicio de identidad para validar un token.
+- **Autenticación**: Plugin `jwt` de Kong, validando localmente con HS256 y el secreto compartido `JWT_SECRET` con que firma discordia-identify (ver ADR-005), Kong nunca llama al servicio de identidad para validar un token.
 - **Rate limiting**: Plugin `rate-limiting` aplicado por IP y por consumer en los endpoints de login y recupero de contraseña (requisito explícito del enunciado).
 - **Resiliencia**: Timeouts y reintentos configurados hacia los backends para no propagar cascadas de fallo cuando un servicio está degradado.
 
@@ -27,3 +27,7 @@ Adoptar **Kong** como API Gateway único, en **modo declarativo (DB-less)**: La 
     - Cualquier cambio de ruta o rotación de la clave JWT requiere actualizar y redeployar `kong.yml`.
     - Suma una capa extra de latencia por request y un proceso más compitiendo por RAM en el VM de infra.
     - El equipo necesita aprender la configuración de Kong (Services/Routes/Plugins), aunque la curva es baja comparada con mantener un gateway propio.
+
+## Nota de actualización (2026-11-18)
+
+El texto original hablaba de una clave pública RSA. La configuración real (`kong.yml.template`, `jwt_secrets` con `algorithm: HS256` y `secret: ${JWT_SECRET}`) usa HS256 con secreto compartido; se corrigió la línea de Autenticación. La rotación del secreto (consecuencia ya listada) implica actualizar `JWT_SECRET` en Kong y en todos los servicios que validan el token. Además, después de este ADR se sumó un plugin `post-function` global que reescribe los errores generados por Kong al formato de error común (ver ADR-029).
