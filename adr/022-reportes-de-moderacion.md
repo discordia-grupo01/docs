@@ -1,94 +1,42 @@
 # ADR-022: servers: reportes de mensajes y usuarios que revisan los moderadores del servidor
 
-**Estado:** Aceptada  
-**Fecha**: 2026-11-04  
-**Servicios**: `servers` (migración `0029_reports`, tres endpoints nuevos), `gateway` (sin cambios: Kong ya enruta todo `/v1/servers`)  
-**Decidida por**: Facundo Madotta (diseño, implementación y pruebas)  
-**Historia**: "Reportar mensaje o usuario": CA1 reporte exitoso, CA2 reporte duplicado  
-**Relacionadas**: Historias de moderación del servidor (baneo #25/#26, expulsión #59, filtro de palabras), ADR-017 (permisos como bits en `servers`)
+**Estado:** Aceptada
+**Fecha:** 2026-11-04
+**Servicios:** `servers` (migración `0029_reports` y tres endpoints nuevos)
+**Relacionadas:** historias de moderación del servidor (baneos, expulsión, filtro de palabras), ADR-017
 
-## 1. Contexto
+## Contexto
 
-La historia dice: *"como miembro de un servidor, quiero reportar un mensaje o un usuario para alertar a los moderadores"*. Hay dos puntos que el texto deja abiertos:
+La historia dice: "como miembro de un servidor, quiero reportar un mensaje o un usuario para alertar a los moderadores". El texto deja abiertas dos cosas.
 
-- **A quién va el reporte.** Dice "los usuarios con permisos de moderación **del servidor**". Es de los moderadores de cada servidor, no del staff de la plataforma (`admin` y `backoffice` tienen sus propias historias: suspender y eliminar servidores, auditoría, expediente).
-- **Qué es "permisos de moderación".** En el catálogo de permisos no existe uno llamado así. Los que moderan son `MANAGE_MESSAGES` (borrar mensajes), `KICK_MEMBERS` y `BAN_MEMBERS`.
+La primera es a quién va el reporte. Habla de los usuarios con permisos de moderación del servidor, o sea de los moderadores de cada servidor y no del staff de la plataforma, que tiene sus propias historias en `admin` y `backoffice`: suspender y eliminar servidores, auditoría y expediente. La segunda es qué es un permiso de moderación, porque en nuestro catálogo no existe uno con ese nombre. Los que moderan de verdad son `MANAGE_MESSAGES` (borrar mensajes), `KICK_MEMBERS` y `BAN_MEMBERS`.
 
-Además, el contenido de los mensajes es de `messaging`; los miembros, los roles y los permisos son de `servers`.
+A eso se suma que el contenido de los mensajes es de `messaging`, mientras que los miembros, los roles y los permisos son de `servers`.
 
-## 2. Decisión
+## Decisión
 
-### 2.1 Moderador = los tres permisos juntos
+Los reportes viven en `servers`, en una tabla `reports`, y consideramos moderador a quien tiene a la vez `MANAGE_MESSAGES`, `KICK_MEMBERS` y `BAN_MEMBERS`; el dueño y los administradores los tienen implícitos. Quien tiene solo uno o dos no ve los reportes. Lo elegimos así porque un reporte puede terminar en borrar el mensaje, expulsar o banear, y el revisor tiene que poder hacer cualquiera de las tres cosas sin pasarle el caso a otro, y además la regla se explica en una frase. Está implementada en un solo lugar (`role.ModeratorPermissions` y `service.RequireModerator`), así que cambiarla, por ejemplo a "cualquiera de los tres", es tocar esa función. La consecuencia práctica es que si en un servidor nadie crea un rol con los tres permisos, los reportes solo los ven el dueño y los administradores.
 
-Un **moderador** es quien tiene `MANAGE_MESSAGES`, `KICK_MEMBERS` y `BAN_MEMBERS` a la vez (el dueño y los administradores los tienen implícitos). Quien tiene solo uno o dos **no** ve los reportes.
+Un reporte de mensaje guarda el canal y el id del mensaje, y uno de usuario guarda el id del reportado. Los dos llevan el servidor, quién reporta, el motivo, el estado y las fechas, y un `CHECK` impide filas incoherentes. No guardamos el contenido del mensaje ni su autor, que son de `messaging`, para minimizar datos; el moderador llega al mensaje por el canal y el id. Por lo mismo, `servers` no puede comprobar que el mensaje exista y solo valida el canal.
 
-Razón: un reporte puede terminar en borrar el mensaje, expulsar o banear, y el revisor tiene que poder hacer cualquiera de las tres cosas sin pasarle el caso a otro. Además la regla se explica en una frase.
+Un reporte nace `pending` y se cierra una sola vez como `resolved`, si el moderador actuó, o `dismissed`, si no había nada que hacer, con quién y cuándo. El caso del reporte duplicado lo decide la base de datos con dos índices únicos parciales sobre los pendientes, uno por servidor, quien reporta y mensaje, y otro por servidor, quien reporta y usuario; la violación se traduce en un `409 report_already_pending`. Un `SELECT` previo tendría una carrera, porque dos pedidos simultáneos pasarían los dos. Cuando se cierra el reporte anterior se puede volver a reportar, y otro miembro puede reportar lo mismo.
 
-Se implementa en un solo lugar: `role.ModeratorPermissions` y `service.RequireModerator`, que usa `Standing.Has` (con varios bits exige todos). Cambiar la regla, por ejemplo a "cualquiera de los tres", es tocar esa función.
+Al reportar se valida que quien reporta sea miembro, que el motivo exista, tenga hasta 512 caracteres y no tenga caracteres de control (el mismo límite que el motivo de un baneo), y, para un mensaje, que el canal sea de texto, del servidor y visible para quien reporta; si no lo ve, devuelve 404 como el resto de los endpoints de canales, para no revelar que existe. Para un usuario, tiene que ser miembro y no uno mismo; se puede reportar a cualquiera, el dueño incluido.
 
-Consecuencia: si en un servidor nadie crea un rol con los tres permisos, los reportes solo los ven el dueño y los administradores. Para la demo hay que crear un rol "Moderador" con los tres.
+La API tiene tres rutas bajo `/v1/servers/{id}/reports`: un `POST` para que un miembro cree el reporte, un `GET` para que un moderador lo liste, del más nuevo al más viejo y filtrando por estado, y un `PATCH` para que un moderador lo cierre como `resolved` o `dismissed`, con `409 report_not_pending` si ya estaba cerrado. El `total` del listado cuenta los que tienen ese estado, así que pidiendo los pendientes con `limit=1` se sabe cuántos quedan por revisar sin bajar la lista. Cerrar un reporte no actúa sobre el mensaje ni sobre el usuario: para eso están los endpoints de moderación que ya existen.
 
-### 2.2 Dónde vive y qué guarda
+No publicamos ningún evento. El aviso a los moderadores lo resuelve el front, con un punto cuando hay pendientes y una pantalla de reportes en la configuración del servidor. Si más adelante se quiere push, el camino es un evento `servers.report_created` que consuma `notifications` con la misma regla de moderador sobre sus réplicas de roles, pero hoy no tendría consumidor y no vamos a publicar un evento que nadie lee. Los reportes se borran con el servidor, y los de mensajes también con su canal. Si el reportado se va o lo echan, el reporte queda, porque es el registro de lo que pasó.
 
-En `servers`, tabla `reports`:
+## Alternativas descartadas
 
-- **Reporte de mensaje**: `channel_id`, `message_id`
-- **Reporte de usuario**: `reported_user_id`
+Pensamos que moderador fuera quien tenga cualquiera de los tres permisos, pero se lo mostraríamos a gente que no puede actuar sobre el reporte; es reversible justamente porque la regla está en un solo lugar. Un permiso nuevo, del estilo `MODERATE` o `VIEW_REPORTS`, obligaba a tocar el catálogo, el bitmask, el `CHECK` de overrides por canal, los clientes y las réplicas de permisos de `messaging` y `notifications`, y no se justifica para una historia.
 
-Los dos llevan servidor, quien reporta, motivo, estado y fechas. Un `CHECK` impide filas incoherentes (un reporte de mensaje sin mensaje, uno de usuario con canal, uno cerrado sin quién ni cuándo).
+Que los vea el staff de la plataforma no corresponde, porque la historia habla de los moderadores del servidor. Guardar una copia del mensaje al reportar lo haría sobrevivir al borrado, pero duplica contenido que es de `messaging` y la historia no lo pide. Un modelo con un solo reporte por contenido y varios reportantes sería otro diseño, con un contador, y el caso del duplicado habla de lo que ya reportó ese miembro. Y mandar un evento y un push a los moderadores desde ya no tiene consumidor.
 
-**No se guarda el contenido del mensaje ni su autor**: son de `messaging` (minimización de datos). El moderador llega al mensaje por el canal y el id. Por lo mismo, `servers` **no puede comprobar que el mensaje exista**: valida el canal, no el mensaje.
+## Consecuencias
 
-### 2.3 Estados y reporte duplicado (CA2)
+El diseño es simple y la regla de duplicados no tiene carreras, porque la decide la base. A cambio hay límites que aceptamos. El mensaje reportado puede no existir: un cliente puede mandar un `message_id` inventado en un canal real, y el moderador lo vería como un mensaje que no aparece; la mejora posible es validar contra `messaging` o guardar una copia. No hay límite de frecuencia, así que un miembro puede crear muchos reportes sobre mensajes distintos, porque el duplicado solo frena el mismo contenido.
 
-Un reporte nace `pending` y se cierra **una sola vez** como `resolved` (el moderador actuó) o `dismissed` (no había nada que hacer), con quién y cuándo.
+Tampoco hay jerarquía: un moderador puede ser el reportado y ver el reporte sobre sí mismo, y se puede reportar al dueño, que es quien lo ve. Los reportes de mensajes de canales borrados desaparecen con el canal, aunque estuvieran pendientes. El listado se pagina por `offset`, igual que los baneos, con lo cual, si entran muchos reportes nuevos entre páginas, puede repetir o saltear alguno.
 
-El CA2 ("ya existe un reporte pendiente de su parte") lo decide **la base**, con dos índices únicos parciales (`WHERE status = 'pending'`): uno por `(servidor, quien reporta, mensaje)` y otro por `(servidor, quien reporta, usuario)`. La violación se traduce en `409 report_already_pending`. Un `SELECT` previo tendría una carrera: dos pedidos simultáneos pasarían los dos.
-
-Cuando el reporte anterior se cierra, se puede volver a reportar. Otro miembro sí puede reportar lo mismo.
-
-### 2.4 Qué se valida al reportar
-
-- Quien reporta es **miembro** (403 si no).
-- Motivo **obligatorio**, de hasta 512 caracteres, sin caracteres de control (mismo límite y saneado que el motivo de un baneo).
-- Mensaje: el canal tiene que ser **de texto**, **del servidor** y **visible para quien reporta**. Si no lo ve, 404 (igual que el resto de los endpoints de canales: no revela que existe). Se reutiliza `RequireVisibleChannel`.
-- Usuario: tiene que ser **miembro** y **no uno mismo**. Se puede reportar a cualquiera, el dueño incluido.
-
-### 2.5 API
-
-- **`POST /v1/servers/{id}/reports`**: Quién: miembro; Qué hace: Crea el reporte. 201
-- **`GET /v1/servers/{id}/reports`**: Quién: moderador; Qué hace: Lista, más nuevo primero. `status`: `pending` (por defecto), `resolved`, `dismissed`, `all`
-- **`PATCH /v1/servers/{id}/reports/{reportId}`**: Quién: moderador; Qué hace: Cierra: `resolved` o `dismissed`. 409 `report_not_pending` si ya estaba cerrado
-
-`total` del listado es la cantidad **con ese estado**, así que `GET ...?status=pending&limit=1` devuelve cuántos hay por revisar sin bajar la lista. Cada reporte trae el perfil replicado de quien reportó y del reportado (`null` hasta que llega de identify).
-
-Cerrar un reporte **no actúa** sobre el mensaje ni el usuario: para eso están los endpoints de moderación que ya existen.
-
-### 2.6 Sin eventos ni push
-
-No se publica ningún evento. El aviso a los moderadores lo resuelve el front: un punto cuando `total` pendiente es mayor que 0 y, en la configuración del servidor, la pantalla "Ver reportes" (lista y botones de resolver y descartar). El CA1 se cumple porque el reporte queda disponible para su revisión, no porque se le empuje a cada moderador.
-
-Si más adelante se quiere push, el camino es un evento `servers.report_created` consumido por `notifications`, con la misma regla de moderador calculada sobre sus réplicas de roles. Hoy no hay consumidor, y no se publica un evento sin consumidor.
-
-### 2.7 Borrado
-
-Los reportes se borran con el servidor (`ON DELETE CASCADE`) y los de mensajes también con su canal. Si el reportado se va o lo echan, el reporte queda (es el registro de lo que pasó). Si el servidor está suspendido por la plataforma, el middleware ya rechaza todo con `SERVER_SUSPENDED`, reportes incluidos.
-
-## 3. Alternativas descartadas
-
-- **Moderador = cualquiera de los tres permisos**: Se lo mostraría a gente que no puede actuar sobre el reporte. Es reversible: la regla está en un solo lugar.
-- **Un permiso nuevo (`MODERATE`, `VIEW_REPORTS`)**: Toca el catálogo y el bitmask, el `CHECK` de overrides por canal, los clientes y las réplicas de permisos de `messaging` y `notifications`, que reciben los permisos por nombre. No se justifica para esta historia.
-- **Que los vea el staff de la plataforma**: La historia habla de los moderadores del servidor. El staff tiene sus propias historias.
-- **Guardar una copia del mensaje al reportar**: Sobrevive al borrado, pero duplica contenido que es de `messaging`. La historia no lo pide.
-- **Detectar el duplicado con un `SELECT` antes de insertar**: Carrera entre dos pedidos simultáneos; lo decide el índice único.
-- **Un solo reporte por contenido con varios reportantes**: Es otro modelo (contador de reportes); el CA2 habla de lo que ya reportó **ese** miembro.
-- **Evento y push a moderadores ya**: Sin consumidor. El aviso es del front.
-
-## 4. Consecuencias y límites
-
-- **El mensaje reportado puede no existir.** Un cliente puede mandar un `message_id` inventado en un canal real. El moderador lo vería como un mensaje que no aparece. Mejora posible: validar contra `messaging` o guardar una copia.
-- **Sin límite de frecuencia.** Un miembro puede crear muchos reportes sobre mensajes distintos. El duplicado solo frena el mismo contenido.
-- **Un moderador puede ser el reportado** y ver el reporte sobre sí mismo. Tampoco hay jerarquía: se puede reportar al dueño, y es el dueño quien lo ve.
-- **Reportes de mensajes de canales borrados desaparecen** con el canal, aunque estuvieran pendientes.
-- **Paginado por `offset`**, igual que los baneos; con muchos reportes nuevos entre páginas puede repetir o saltear alguno.
-- **Fuera de alcance**: notificar a los moderadores, que el reportado se entere, comentarios sobre el reporte, historial de qué se hizo (la auditoría de moderación es otra historia).
+Quedan fuera de esta historia notificar a los moderadores, que el reportado se entere, los comentarios sobre el reporte y un historial de lo que se hizo, ya que la auditoría de moderación es otra historia.
