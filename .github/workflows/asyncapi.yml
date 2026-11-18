@@ -20,6 +20,8 @@ jobs:
         with:
           go-version: "1.22"
       - name: Comparar los AsyncAPI con events-contract
+        env:
+          GOPROXY: direct
         run: go run github.com/discordia-grupo01/events-contract/cmd/eventsgen@latest docs-check asyncapi
       - uses: actions/setup-node@v4
         with:
@@ -44,6 +46,8 @@ jobs:
         with:
           go-version: "1.22"
       - name: Regenerar los schemas desde events-contract
+        env:
+          GOPROXY: direct
         run: go run github.com/discordia-grupo01/events-contract/cmd/eventsgen@latest docs-sync asyncapi
       - name: Abrir un PR si cambió algo
         env:
