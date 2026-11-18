@@ -315,6 +315,26 @@ channels:
     bindings:
       $ref: '#/components/channelBindings/discordiaEvents'
 
+  voicePrivateParticipantJoined:
+    address: voice.private_participant_joined
+    title: voice.private_participant_joined
+    description: Un participante entró a una sala privada de llamada.
+    messages:
+      voicePrivateParticipantJoined:
+        $ref: '#/components/messages/VoicePrivateParticipantJoined'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
+  voicePrivateParticipantLeft:
+    address: voice.private_participant_left
+    title: voice.private_participant_left
+    description: Un participante salió de una sala privada de llamada.
+    messages:
+      voicePrivateParticipantLeft:
+        $ref: '#/components/messages/VoicePrivateParticipantLeft'
+    bindings:
+      $ref: '#/components/channelBindings/discordiaEvents'
+
   voicePrivateCall:
     address: voice.private_call
     title: voice.private_call
@@ -468,6 +488,24 @@ operations:
     title: voice-sfu publica voice.participant_left
     channel:
       $ref: '#/channels/voiceParticipantLeft'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishVoicePrivateParticipantJoined:
+    action: send
+    title: voice-sfu publica voice.private_participant_joined
+    channel:
+      $ref: '#/channels/voicePrivateParticipantJoined'
+    bindings:
+      amqp:
+        deliveryMode: 2
+
+  publishVoicePrivateParticipantLeft:
+    action: send
+    title: voice-sfu publica voice.private_participant_left
+    channel:
+      $ref: '#/channels/voicePrivateParticipantLeft'
     bindings:
       amqp:
         deliveryMode: 2
@@ -921,6 +959,18 @@ components:
       title: Participante salió de un canal de voz
       payload:
         $ref: '#/components/schemas/VoiceParticipantLeft'
+
+    VoicePrivateParticipantJoined:
+      name: VoicePrivateParticipantJoined
+      title: Participante entró a una llamada privada
+      payload:
+        $ref: '#/components/schemas/VoicePrivateParticipantJoined'
+
+    VoicePrivateParticipantLeft:
+      name: VoicePrivateParticipantLeft
+      title: Participante salió de una llamada privada
+      payload:
+        $ref: '#/components/schemas/VoicePrivateParticipantLeft'
 
     VoicePrivateCall:
       name: VoicePrivateCall
@@ -1459,6 +1509,56 @@ components:
         room_id: {type: string, format: uuid}
         participant_id: {type: string}
         name: {type: string}
+
+    VoicePrivateParticipantJoined:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        event_type:
+          type: string
+          enum:
+            - voice.private_participant_joined
+        call_id:
+          type: string
+        room_name:
+          type: string
+        participant_id:
+          type: string
+        name:
+          type: string
+      required: [event_id, occurred_at, event_type, call_id, room_name, participant_id, name]
+
+    VoicePrivateParticipantLeft:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Usar para deduplicar (at-least-once).
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
+        event_type:
+          type: string
+          enum:
+            - voice.private_participant_left
+        call_id:
+          type: string
+        room_name:
+          type: string
+        participant_id:
+          type: string
+        name:
+          type: string
+      required: [event_id, occurred_at, event_type, call_id, room_name, participant_id, name]
 
     VoicePrivateCall:
       type: object
