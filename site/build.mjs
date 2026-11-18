@@ -33,6 +33,7 @@ const SERVICES = [
 const OPERATION_DOCS = [
   { file: "reintentos-y-dlq.md", slug: "reintentos-y-dlq" },
   { file: "voice-replica-migration.md", slug: "voice-replica" },
+  { file: "formato-de-errores.md", slug: "formato-de-errores" },
 ];
 
 const SECTIONS = [

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://discordia-grupo01.github.io/docs/contratos/error-response.schema.json",
+  "title": "ErrorResponse",
+  "description": "Cuerpo de toda respuesta HTTP con status >= 400 de un endpoint REST de Discordia (ADR-029).",
+  "type": "object",
+  "required": ["error"],
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "type": "object",
+      "required": ["code", "message", "details"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "Código estable en SCREAMING_SNAKE_CASE. Los clientes deciden por este campo.",
+          "examples": ["SERVER_NOT_FOUND"]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Texto legible para humanos. Nunca incluye errores internos, stack traces ni SQL."
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Datos adicionales. Siempre presente y siempre objeto; {} si no hay nada que agregar."
+        }
+      }
+    }
+  }
+}
