@@ -1,0 +1,25 @@
+# Componente reutilizable del formato de error (ADR-029).
+# Copiar el schema a components/schemas de cada openapi.yaml, o referenciarlo.
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message, details]
+          properties:
+            code:
+              type: string
+              pattern: '^[A-Z][A-Z0-9_]*$'
+              example: SERVER_NOT_FOUND
+            message:
+              type: string
+              minLength: 1
+              example: El servidor no existe.
+            details:
+              type: object
+              additionalProperties: true
+              example: {}
