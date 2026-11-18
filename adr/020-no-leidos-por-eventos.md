@@ -1,102 +1,46 @@
 # ADR-020: notifications: indicadores de no leído derivados de eventos, sin llamadas HTTP entre servicios
 
-**Estado:** Aceptada  
-**Fecha**: 2026-10-23  
-**Servicios**: `notifications` (nuevo), `messaging` (publica un evento nuevo), `events-contract`, `docs` (AsyncAPI), `gateway` (Kong), `infrastructure`  
-**Decidida por**: Facundo Madotta (diseño, implementación y pruebas)  
-**Historia**: "Ver notificaciones no leídas": CA1 indicador por canal, CA2 indicador por servidor, CA3 mención destacada (optativa)  
-**Relacionadas**: ADR-016 (propagación en tiempo real), ADR-014 (ticket del WebSocket), ADR-017 (réplica local de permisos)
+**Estado:** Aceptada
+**Fecha:** 2026-10-23
+**Servicios:** `notifications`, `messaging`, `events-contract`, `gateway` (Kong), `infrastructure`
+**Relacionadas:** ADR-014 (ticket del WebSocket), ADR-016 (propagación entre instancias), ADR-017 (réplica local de permisos)
 
-## 1. Contexto
+## Contexto
 
-La historia pide saber, por canal y por servidor, si hay algo sin leer, y distinguir las menciones. Para eso hace falta conocer tres cosas que viven en servicios distintos:
+La historia de usuario pide saber, por canal y por servidor, si hay algo sin leer, y distinguir las menciones. Para eso hacen falta tres datos que viven en lugares distintos: qué mensajes se escribieron (`messaging`), quién puede ver cada canal (`servers`, con sus miembros, roles, overrides y dueño) y hasta dónde leyó cada usuario, que todavía no guardaba nadie.
 
-- **qué mensajes se escribieron** (`messaging`),
-- **quién puede ver cada canal** (`servers`: miembros, roles, overrides, dueño),
-- **hasta dónde leyó cada usuario** (no lo guarda nadie todavía).
+El repositorio `notifications` ya existía, vacío, con la plantilla. La indicación del equipo fue seguir el mismo alineamiento que `messaging` y, como es un servicio de eventos, no hacer pedidos HTTP entre servicios.
 
-Ya existía un repo `notifications` vacío (la plantilla). La indicación fue seguir el mismo alineamiento que `messaging` y, como es un servicio de eventos, **no hacer pedidos HTTP entre servicios**.
+## Decisión
 
-## 2. Decisión
+Todo lo que `notifications` sabe le llega por eventos. Consume de `discordia.events` con una cola durable propia, `notifications.unread_state`, y de ahí aprende la actividad y las menciones de los canales, qué canales existen, quién es miembro y desde cuándo, y los permisos. Los eventos de `servers` ya se publicaban, y con ellos arma una réplica local de permisos en Mongo, igual que en el ADR-017 y con el mismo cálculo que usa `messaging`. Así sabe qué canales de texto puede ver cada usuario sin preguntarle a `servers`.
 
-### 2.1 Todo lo que el servicio sabe llega por eventos
+Lo único que faltaba era que `messaging` avisara cuando se escribe un mensaje, porque hasta entonces solo notificaba a sus propios sockets. Agregamos el evento `messaging.message_created`, que sale por el mismo outbox que el resto (ADR-018), en la misma transacción que el mensaje. Lleva solamente ids (servidor, canal, mensaje, autor y mencionados) y la fecha, nunca el contenido: `notifications` no necesita saber qué se dijo. No se publica para mensajes directos, que no tienen servidor ni permisos por canal.
 
-`notifications` consume de `discordia.events` (exchange topic) con **una cola durable propia**, `notifications.unread_state`:
+El estado se deriva comparando ids, sin contadores. Por canal se guarda el id del último mensaje, y por usuario y canal el id hasta donde leyó y el de la última mención. Como los ids son UUIDv7, que ordenan por tiempo, un canal está sin leer cuando su último mensaje es posterior al mayor entre lo leído y el momento en que el usuario entró al servidor, y una mención destaca de la misma manera. Todas las escrituras usan `$max`, de modo que solo avanzan. Eso hace que procesar un evento dos veces, o fuera de orden, deje el mismo estado, que es justo lo que necesita el "al menos una vez" de RabbitMQ, sin tablas de deduplicación para los mensajes. Los mensajes propios no encienden el canal y marcan como leído lo anterior, y quien entra a un servidor no ve todo el historial previo como pendiente. Una mención sigue destacada hasta que se lee el canal; un mensaje común posterior no la apaga.
 
-- **`messaging.message_created` (nuevo)**: actividad del canal y menciones
-- **`servers.channel_created` / `channel_deleted` / `server_deleted`**: qué canales existen
-- **`servers.member_joined` / `member_left`**: membresía y momento de ingreso
-- **`servers.member_roles_updated` / `role_updated` / `role_deleted` / `channel_overrides_updated` / `owner_updated`**: permisos
+Se entregan booleanos y no cantidades. La historia habla de un indicador, hay o no hay, y contar obligaría a guardar contadores o a contar en cada consulta, algo que nadie pidió.
 
-Los eventos de `servers` ya se publicaban; con ellos se arma una **réplica local de permisos en Mongo**, igual que en el ADR-017 (el módulo de permisos es el mismo cálculo que usa `messaging`). Así `notifications` sabe qué canales de texto puede ver cada usuario (`VIEW_CHANNELS`) sin preguntarle a `servers`.
+El estado viaja por un canal Phoenix propio, `notifications:<user_id>`, en `/notifications/socket`. Al unirse el usuario recibe un `snapshot` con lo que tiene sin leer, y después un `unread_updated` solo cuando cambian los indicadores; el cliente manda `mark_read` al abrir un canal y `mark_all_read` para marcar todo. Como el navegador no puede mandar `Authorization` al abrir un WebSocket (ADR-014), repetimos el patrón de `messaging`: un ticket de un solo uso de 30 segundos, que se pide con `POST /v1/notifications/socket-tickets` y se guarda en Mongo. Es la única llamada HTTP del servicio y va del cliente hacia `notifications`, no entre servicios. Descartamos reutilizar el socket de `messaging` porque acoplaría la disponibilidad de los dos servicios y haría que `messaging` conociera un concepto que no es suyo.
 
-### 2.2 Un evento nuevo en messaging: messaging.message_created
+Marcar todo como leído sube, para cada canal visible con algo pendiente, el marcador al último mensaje, en una sola escritura en bloque. Después se manda un `resync` a las sesiones del usuario, que reciben un `snapshot` vacío; así todas convergen al estado guardado sin repartir una notificación por canal.
 
-`messaging` no publicaba nada al bus de dominio cuando se escribía un mensaje (solo avisaba a sus propios sockets). Se agregó `messaging.message_created`, que sale por **el mismo outbox** que el resto (ADR-018), en la misma transacción que el mensaje.
+El orden de los eventos de `servers` se resuelve como en `messaging`, con un reloj por entidad: gana el más nuevo por `occurred_at` y los borrados dejan una lápida de 7 días. Si un usuario que se había ido vuelve a entrar, su membresía cuenta como nueva, con su propio momento de ingreso.
 
-El payload lleva **solo ids**: `server_id`, `channel_id`, `message_id`, `author_id`, `mentioned_user_ids`, `occurred_at`. **Nunca el contenido** (minimización de datos: `notifications` no necesita saber qué se dijo). No se publica para mensajes directos (no tienen servidor ni permisos por canal). El contrato está en `events-contract` y en el AsyncAPI de `docs`.
+`notifications` corre en una sola instancia, por decisión del equipo, así que no hay fanout entre instancias ni colas por instancia. La regla de que nada importante viva en memoria se mantiene: el estado está en Mongo y cada socket guarda solo una copia de trabajo de su usuario, que se reconstruye con un `resync`.
 
-### 2.3 El estado se deriva comparando ids; no hay contadores
+Para arrancar sobre datos existentes hubo que resolver que la cola nace vacía y RabbitMQ no guarda lo publicado antes. El backfill de `servers` re-publica roles, miembros, overrides y dueño, pero no los canales, y para no pedir un cambio a `servers`, un `messaging.message_created` de un canal desconocido lo da de alta como canal de texto, salvo que figure borrado. La línea base de cada miembro es el momento en que el servicio lo vio por primera vez, así que el historial anterior al despliegue no aparece como no leído.
 
-Se guarda, por canal, el id del **último mensaje**; por usuario y canal, el id **hasta donde leyó** y el id de **la última mención**. Los ids de mensaje son UUIDv7, que ordenan por tiempo, así que:
+## Alternativas descartadas
 
-```
-no leído  =  último_mensaje  >  max(leído_hasta, momento_de_ingreso)
-```
+La primera idea, consultar por HTTP a `messaging` y a `servers`, era justamente lo que se pidió evitar, porque acopla la disponibilidad de los tres servicios y multiplica la latencia del `snapshot`.
 
-```
-mención   =  última_mención  >  max(leído_hasta, momento_de_ingreso)
-```
+Los contadores de no leídos se desincronizan ante reentregas o fallos parciales, y la historia ni siquiera pide números. Tampoco pusimos lo no leído dentro de `messaging`, porque mezcla responsabilidades y el repositorio de `notifications` estaba para esto. Publicar el contenido del mensaje en el evento es innecesario y expone datos de más en el bus, y el polling del cliente no tiene sentido cuando la historia es de tiempo real y ya había infraestructura de WebSocket.
 
-Todas las escrituras son `$max` (solo avanzan). Consecuencias buscadas:
+## Consecuencias
 
-- **Idempotente**: procesar dos veces el mismo evento, o fuera de orden, deja el mismo estado. Es lo que permite el *at-least-once* de RabbitMQ sin tablas de deduplicación para los mensajes.
-- **Sin sumas que se desincronicen** (nada de "+1 al llegar, -N al leer").
-- **Línea base por ingreso**: `max(..., floor_v7(joined_at))`. Quien entra a un servidor no ve como no leído todo el historial anterior.
-- Los mensajes **propios** no encienden el canal y marcan como leído lo anterior.
-- Una mención solo destaca mientras sea posterior a la línea base; un mensaje común posterior no la apaga, leer el canal sí.
+El servicio no depende de ningún otro en el camino de lectura y escritura: si `messaging` o `servers` se caen, los indicadores siguen respondiendo con lo último que supieron. A cambio, todo lo que muestra es consistente solo con el tiempo, lo que tardan los eventos en llegar.
 
-### 2.4 Booleanos, no cantidades
+Hay límites que aceptamos. El orden depende de los relojes de las instancias de `messaging`, que generan los UUIDv7, así que entre mensajes concurrentes puede haber un desfase de milisegundos, el mismo que ya tiene el historial. `mark_read` acepta ids que todavía no llegaron a `notifications`, porque el cliente ve el mensaje en vivo por `messaging` antes de que `notifications` procese su evento y, si se recortara al último mensaje conocido, el canal se encendería justo después de leerlo; se acepta cualquier UUIDv7 que no esté más de 60 segundos en el futuro, y el peor caso de un id mal puesto es que el propio usuario se oculte sus avisos.
 
-La historia habla de un *indicador* (hay/no hay), no de un número. Se entrega `unread` y `mention` por canal y por servidor. Contar mensajes obligaría a guardar contadores (2.3) o a contar en cada consulta; se descartó porque nadie lo pidió.
-
-### 2.5 Entrega en vivo: WebSocket propio, con una excepción HTTP
-
-El estado viaja por un **canal Phoenix propio** (`notifications:<user_id>` en `/notifications/socket`): al unirse se empuja un `snapshot` con lo que está sin leer y después `unread_updated` solo cuando cambian los indicadores. El cliente manda `mark_read`.
-
-El navegador no puede mandar `Authorization` al abrir un WebSocket (ADR-014), así que se repite el patrón de `messaging`: un **ticket de un solo uso, 30 s**, que se pide con `POST /v1/notifications/socket-tickets` (Kong valida el JWT) y se guarda en Mongo. Es **la única llamada HTTP** del servicio, y es del cliente hacia `notifications`, no entre servicios.
-
-Se descartó reutilizar el socket de `messaging`: acoplaría el despliegue y la disponibilidad de dos servicios, y `messaging` pasaría a conocer un concepto (lo no leído) que no es suyo.
-
-### 2.6 Una sola instancia, sin distribución
-
-`notifications` **no es distribuido**: corre una instancia (decisión del equipo). La instancia consume la cola, escribe en Mongo y avisa a sus sockets con `Endpoint.broadcast`. No hay fanout entre instancias, ni exchange extra, ni colas por instancia.
-
-Se mantiene la regla de que nada importante vive en memoria: el estado está en Mongo y cada socket guarda solo una copia de trabajo de *su* usuario, que se reconstruye desde Mongo ante un `resync`. Si en el futuro hiciera falta escalar, habría que agregar el reparto de avisos entre instancias (como hace `messaging`, ADR-016); hoy queda fuera de alcance.
-
-### 2.7 Arranque sobre datos existentes
-
-La cola de `notifications` nace vacía y RabbitMQ no guarda lo publicado antes. El backfill de `servers` (migración 0022) re-publica roles, miembros, overrides y dueño, pero no los canales. Para no pedir cambios en `servers`, un `messaging.message_created` de un canal desconocido lo da de alta como canal de texto (un mensaje solo existe en canales de texto), salvo que el canal figure borrado. La línea base de cada miembro es el momento en que el servicio lo vio por primera vez, así que el historial anterior al deploy no aparece como no leído.
-
-### 2.8 Marcar como leído
-
-Historia "Marcar notificaciones como leídas". Abrir un canal es `mark_read` (por canal, ya existente); "marcar todo" es `mark_all_read`: para cada canal visible con contenido sin leer, el marcador sube al último mensaje del canal, en una sola escritura en bloque (`$max`, idempotente, nunca retrocede). Solo se escriben los canales realmente sin leer. Después se publica un `resync` a las sesiones del usuario, que reciben un `snapshot` vacío; así todas convergen al estado guardado y no hay que repartir una notificación por canal. No se agregó "marcar un servidor": no lo pide la historia y se puede hacer con un `mark_read` por canal.
-
-### 2.9 Orden de eventos de servers
-
-Igual que en `messaging`: un reloj por entidad (`event_clocks`), gana el evento más nuevo por `occurred_at`, los borrados dejan una lápida con TTL de 7 días. Además, al rejoin de un usuario que se había ido, la membresía vuelve como nueva (con su propio momento de ingreso).
-
-## 3. Alternativas descartadas
-
-- **Que `notifications` consulte por HTTP a `messaging` y `servers`**: Era justo lo que se pidió evitar; acopla disponibilidad y multiplica la latencia del `snapshot`.
-- **Contadores de no leídos**: Se desincronizan ante reentregas o fallos parciales; la historia no pide números.
-- **Meter lo no leído dentro de `messaging`**: Mezcla responsabilidades y ya existía el repo `notifications` para esto.
-- **Publicar el contenido del mensaje en el evento**: Innecesario para la historia y expone datos de más al bus.
-- **Polling del cliente**: La historia es de tiempo real; ya hay infraestructura de WebSocket.
-
-## 4. Consecuencias y límites
-
-- **El orden depende de los relojes de `messaging`.** Los UUIDv7 se generan en cada instancia de `messaging`; entre mensajes concurrentes el orden es el del reloj de cada una (desfase de milisegundos). Es el mismo límite que ya tiene el historial.
-- **`mark_read` acepta ids que todavía no llegaron.** El cliente ve el mensaje en vivo por `messaging` antes de que `notifications` procese su evento. Si se recortara al último mensaje conocido, el canal se encendería justo después de leerlo. Se acepta cualquier UUIDv7 que no esté más de 60 s en el futuro; el peor caso de un id mal puesto es que el propio usuario se oculte sus avisos.
-- **Fuera de alcance**: eventos de suspensión de usuarios, DMs (no hay evento), menciones agregadas al editar un mensaje, conteos, notificaciones push al celular, integración en el web-client.
-- **Cola de errores (DLQ)**: un evento que falla se reintenta indefinidamente con espera; no hay cola de eventos muertos (es un pendiente común a todos los consumidores, ver `planes/pendientes-manejo-de-eventos.md`).
+Quedaron fuera de esta decisión la suspensión de usuarios, los mensajes directos, las menciones agregadas al editar un mensaje y los conteos. El push al celular y el centro de notificaciones vinieron después, en el ADR-021. Y el tratamiento de un evento que falla una y otra vez, que al principio se reintentaba indefinidamente, se resolvió luego con la cola de eventos muertos del ADR-030.

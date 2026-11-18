@@ -1,25 +1,30 @@
-# ADR-005: Autenticación mediante request-response sincrónico
+# ADR-005: El login es una llamada sincrónica
 
 **Estado:** Aceptado
+**Servicios:** `identify-service`, `gateway` (Kong)
+**Relacionadas:** ADR-006 (API Gateway), ADR-007 (mensajería pub/sub), ADR-011 (access y refresh token)
 
 ## Contexto
 
-El enunciado establece que la comunicación entre servicios debe ser asíncrona por defecto, y que una llamada sincrónica debe justificarse explícitamente. El login es el caso de excepción: el cliente necesita el JWT para adjuntarlo a cada request subsiguiente. Sin ese token no puede ejecutar ninguna acción autenticada, abrir WebSockets ni recibir mensajes. El flujo es autocontenido en `discordia-identify` y no requiere información de ningún otro servicio.
+El enunciado dice que los servicios deben comunicarse de forma asíncrona por defecto, con eventos, y que cualquier llamada sincrónica, donde un servicio llama a otro y espera la respuesta, hay que justificarla.
+
+El login es un caso que no se puede resolver con eventos. Cuando alguien inicia sesión, el cliente necesita recibir el token de acceso (el JWT) para poder hacer cualquier otra cosa: sin él no puede pedir nada autenticado, ni abrir un WebSocket, ni recibir mensajes. Además, `identify-service` tiene todo lo que necesita para resolverlo solo, porque guarda los usuarios, las contraseñas y las sesiones.
 
 ## Decisión
 
-El endpoint `POST /api/v1/auth/login` opera de forma sincrónica: el cliente envía credenciales, Kong enruta a `discordia-identify`, y el servicio devuelve el JWT y el refresh token en la misma conexión HTTP. Los efectos secundarios (registrar último acceso, emitir evento de auditoría) se publican en RabbitMQ de forma asíncrona después de responder al cliente. Kong valida el JWT en requests subsiguientes de forma local usando el secreto compartido (`JWT_SECRET`) con que `discordia-identify` firma los tokens (HS256), sin llamar al servicio de identidad en cada request.
+El login es sincrónico. El cliente manda su correo y su contraseña a `POST /v1/login`, Kong lo enruta a `identify-service`, y este responde en la misma conexión con el token. No interviene ningún otro servicio.
+
+Después del login, los pedidos siguientes llevan ese token y es Kong quien lo comprueba, sin llamar a nadie. El token se firma con un secreto que conocen `identify-service` y Kong, así que Kong puede verificar la firma y la fecha de vencimiento por su cuenta. Los demás servicios confían en lo que Kong ya validó.
+
+El login también está protegido contra abuso en dos niveles. `identify-service` bloquea los intentos repetidos con la misma combinación de correo e IP, y Kong limita cuántos pedidos de login por minuto acepta de cada IP.
+
+## Alternativas descartadas
+
+- **Hacer el login asincrónico.** Habría que publicar un evento de "login pedido" y esperar la respuesta por otro lado. No ganaríamos nada, porque el cliente no puede seguir hasta tener el token, y se complicaría el flujo para el usuario.
+- **Que cada servicio le pregunte a `identify-service` si el token es válido en cada pedido.** Sería una llamada sincrónica más por cada pedido que llega al sistema, y si `identify-service` se cae, dejaría de funcionar todo, no solo el login. Con la validación en Kong, un token válido sigue sirviendo aunque `identify-service` no esté.
 
 ## Consecuencias
 
-- **Positivas**:
-    - El cliente obtiene el JWT en una sola request sin pasos adicionales.
-    - El flujo no depende de otros servicios, lo que aísla fallos.
-    - Los servicios downstream validan tokens localmente sin dependencia de red en el hot path.
-- **Negativas**:
-    - Si `discordia-identify` no está disponible, ningún usuario nuevo puede autenticarse. Mitigado con múltiples instancias y health checks.
-    - El hashing BCrypt limita el throughput de autenticaciones concurrentes; mitigado con rate limiting en Kong por IP y por cuenta.
+El cliente obtiene su token en un solo pedido y sin pasos intermedios. El login no depende de otros servicios, así que sus fallos quedan aislados, y los pedidos autenticados se validan en el gateway sin ninguna llamada de red hacia identidad.
 
-## Nota de actualización (2026-11-18)
-
-Este ADR decía que Kong validaba con una clave pública RSA. La implementación firma y valida con **HS256 y un secreto compartido** (`JWT_SECRET`): `discordia-identify` firma (`internal/service/auth_service.go`) y Kong verifica con el plugin `jwt` (`discordia-gateway/kong/kong.yml.template`, `algorithm: HS256`). Se corrige el texto para que coincida con lo desplegado; la decisión (login sincrónico, validación local sin llamar a identify) no cambia. Consecuencia que sí cambia: el secreto debe estar en todos los componentes que validan el token (Kong y los servicios que lo verifican por su cuenta), y rotarlo obliga a redeployarlos a todos. Pasar a RSA queda como alternativa si se quiere que Kong pueda verificar sin poder firmar.
+A cambio, si `identify-service` no está disponible nadie puede iniciar sesión, aunque quienes ya tienen un token válido siguen funcionando hasta que venza. El hash de la contraseña es deliberadamente lento, lo que limita cuántos logins simultáneos aguanta el servicio, y es parte de la razón del límite por IP en Kong. Y como el secreto de firma lo conocen `identify-service` y Kong, cambiarlo implica actualizar y reiniciar los dos.

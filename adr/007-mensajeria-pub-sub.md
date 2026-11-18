@@ -1,36 +1,41 @@
 # ADR-007: Mensajería Pub/Sub
 
-**Estado:** Esperando aceptación
+**Estado:** Aceptado
+**Servicios:** todos, con RabbitMQ en `rabbit-mq` y `infrastructure`
+**Relacionadas:** ADR-008 (contratos), ADR-018 (outbox), ADR-030 (entrega de eventos), ADR-034 (dónde corre cada cosa)
 
 ## Contexto
 
-El enunciado exige que la comunicación *entre servicios* backend sea asíncrona por defecto (eventos/colas), salvo excepciones ya justificadas. Se necesita un mecanismo de pub/sub para que eventos de dominio (ej. moderation.member_banned, users.registered) se propaguen entre servicios sin acoplamiento directo, con al menos una instancia de cada servicio corriendo en paralelo, y los consumidores deben ser idempotentes ante duplicados o desorden. Se evaluaron: **Redis Pub/Sub** (ya usado puntualmente dentro de Elixir para difundir mensajes en tiempo real entre nodos de Phoenix, pero sin persistencia, un evento sin consumidor conectado en ese instante se pierde para siempre, inaceptable para eventos de negocio), **Kafka** (mejor throughput y replay nativo de eventos, pero exige operar Zookeeper/KRaft y particiones, complejidad operativa que no se justifica para el volumen esperado de un TP), **NATS/JetStream** (liviano, pero la capa de persistencia agrega una complejidad similar a Kafka sin su ecosistema) y **RabbitMQ** (ya indicado en la tabla de stack, exchanges tipo topic calzan naturalmente con el patrón <épica>.<acción> del contrato de API, colas durables con ack manual dan entrega confiable, y es liviano de correr junto a los demás servicios en el VM de infra).
+El enunciado exige que la comunicación entre servicios sea asíncrona por defecto, con eventos o colas, salvo las excepciones que se justifiquen. Necesitábamos un mecanismo de pub/sub para que los hechos del dominio, como un baneo o el alta de un usuario, se propaguen entre servicios sin acoplarlos directamente, con al menos una instancia de cada uno corriendo, y con consumidores que toleren duplicados y desorden.
+
+Evaluamos cuatro opciones. Redis Pub/Sub ya lo usábamos dentro de Elixir, pero no guarda nada: un evento sin consumidor conectado en ese instante se pierde para siempre, y eso es inaceptable para eventos de negocio. Kafka tiene mejor throughput y repetición nativa, pero exige operar particiones y un coordinador, una complejidad que no se justifica para el volumen de un proyecto como este. NATS con JetStream es liviano, pero la capa de persistencia agrega una complejidad parecida a la de Kafka sin su ecosistema. Y RabbitMQ estaba en la tabla de stack del grupo, tiene exchanges de tipo topic que calzan con nombres de evento como `servers.channel_created`, colas durables con confirmación manual y es liviano de correr junto al resto.
 
 ## Decisión
 
-Adoptar **RabbitMQ** como bus de eventos asíncrono entre servicios backend, con un exchange tipo topic (discordia.events) y routing keys <épica>.<acción> en pasado, igual a como ya se definieron los nombres de evento en el contrato de API. Cada servicio consumidor declara su propia cola durable con binding a los routing keys que le interesan.
+Usamos RabbitMQ como bus de eventos entre servicios. Hay un exchange de tipo topic, `discordia.events`, y los eventos se publican con una routing key `<servicio>.<hecho en pasado>`, por ejemplo `servers.channel_created` o `users.profile_updated`. Cada servicio que consume declara su propia cola durable, enlazada a las routing keys que le interesan. Los mensajes son persistentes y el consumidor confirma manualmente (nunca con autoack) recién cuando terminó de procesar. RabbitMQ lo operamos nosotros, en una VM propia, y no con un servicio administrado como CloudAMQP.
 
-Respuesta puntual a las preguntas planteadas por la cátedra sobre esta decisión:
+Un evento es siempre un hecho consumado, no una orden. El consumidor no está obligado a actuar y el publicador no espera respuesta, para no esconder un request/response detrás de un evento.
 
-- **¿Qué pasa si el mensaje se pierde?** No se pierde: Colas durables + mensajes persistentes (delivery_mode=2) + ack manual del consumidor (nunca autoack). Si el consumidor se cae antes de enviar ack, RabbitMQ vuelve a encolar el mensaje.
-- **¿Y si el servicio destino está caído al publicar?** El exchange y la cola existen independientemente del estado del consumidor; el mensaje queda encolado hasta que el consumidor vuelva a levantar. Si el broker mismo no está disponible, el publisher loguea el fallo (se evalúa un outbox pattern si en la práctica aparecen inconsistencias).
-- **¿Alcanza con solo enviar?** No, se necesita ack manual del consumidor para confirmar procesamiento; publicar sin confirmación no cumple el requisito de no perder eventos.
-- **¿Escala con más consumidores?** Sí, de dos formas según el caso: *Competing consumers* (varios workers leyendo la misma cola, RabbitMQ reparte round-robin) cuando alcanza con que uno solo procese el evento; una cola por servicio bindeada al mismo routing key cuando varios servicios distintos necesitan ver el mismo evento.
-- **¿Importa el orden de llegada?** RabbitMQ garantiza FIFO dentro de una única cola con un único consumidor activo, pero no entre colas ni con múltiples consumers en paralelo sobre la misma cola. Los consumidores deben ser tolerantes a desorden razonable (verificar versión/timestamp del recurso antes de aplicar un evento, nunca asumir que UserCreated siempre llega antes que UserUpdated).
-- **¿Eventos contradictorios en paralelo?** Se resuelven en el consumidor con chequeo de versión/estado antes de aplicar el efecto (idempotencia + last-write-wins por timestamp donde corresponda).
-- **¿Se puede reproducir qué pasó?** RabbitMQ no retiene mensajes ya consumidos, así que no hay replay nativo. discordia-docs documenta el schema de cada evento como contrato; se evalúa además persistir un log de auditoría de eventos procesados.
-- **¿Solución ante mensajes corruptos enviados indefinidamente?** Política de DLQ (después de N reintentos, mover a una cola de errores) para poder operar esto en producción sin que un solo mensaje malo tire abajo el procesamiento del resto.
+Las preguntas de la cátedra sobre esta decisión las respondimos así:
+
+- **Si el mensaje se pierde.** No debería perderse: las colas son durables, los mensajes persistentes y la confirmación es manual. Si el consumidor se cae antes de confirmar, RabbitMQ vuelve a encolar el mensaje. Y si el que no está disponible es el propio broker al publicar, el evento queda anotado en el outbox de quien lo emite y sale cuando RabbitMQ vuelve (ADR-018).
+- **Si el servicio destino está caído al publicar.** El exchange y la cola existen aunque el consumidor no esté, así que el mensaje espera hasta que levante.
+- **Si alcanza con solo enviar.** No. Hace falta la confirmación del consumidor, y del lado del publicador las confirmaciones del broker; publicar sin confirmación no cumple el requisito de no perder eventos.
+- **Si escala con más consumidores.** Sí, de dos maneras: varios workers sobre la misma cola, que RabbitMQ reparte, cuando alcanza con que uno solo procese el evento, y una cola por servicio con el mismo binding cuando varios servicios necesitan verlo.
+- **Si importa el orden.** RabbitMQ garantiza el orden dentro de una cola con un único consumidor, pero no entre colas ni con consumidores en paralelo. Por eso los consumidores no asumen orden: cada uno compara una versión o una fecha del recurso antes de aplicar un evento (ADR-017).
+- **Eventos contradictorios en paralelo.** Se resuelven en el consumidor, con idempotencia y última escritura por fecha donde corresponde.
+- **Si se puede reproducir lo que pasó.** RabbitMQ no guarda lo ya consumido, así que no hay replay nativo. Cada evento está documentado como contrato (ADR-008), y los consumidores que lo necesitan guardan una auditoría de lo que procesaron.
+- **Mensajes corruptos que se reenvían para siempre.** Después de 5 intentos con espera creciente, el evento se aparta a una cola de eventos muertos y deja de bloquear a los que vienen detrás (ADR-030).
+
+## Alternativas descartadas
+
+- **Redis Pub/Sub.** Sin persistencia, un evento sin consumidor en ese momento se pierde.
+- **Kafka.** Más potente y con repetición, pero hay que operar particiones y un coordinador, desproporcionado para nuestro volumen.
+- **NATS con JetStream.** Liviano, pero la persistencia agrega una complejidad parecida a la de Kafka sin su ecosistema.
+- **RabbitMQ administrado en CloudAMQP, en lugar de correrlo en una VM propia.** Lo evaluamos porque nos ahorraba operarlo, pero el plan gratuito limita a 20 conexiones simultáneas, y con unos diez servicios con una conexión persistente cada uno el margen era demasiado ajustado. Correrlo nosotros en una VM no tiene ese límite.
 
 ## Consecuencias
 
-- **Positivas**:
-    - Cumple el requisito de comunicación asíncrona por defecto entre servicios.
-    - El patrón de exchange topic + routing key calza exactamente con la convención <épica>.<acción> ya acordada en el contrato de API.
-    - Colas durables + ack manual dan entrega *at-least-once* sin perder eventos ante caídas de consumidor.
-    - Escala horizontalmente cada servicio consumidor sin cambiar el modelo de publicación.
-    - Ya contemplado en la tabla de stack del grupo; corre liviano tanto self-hosteado en el VM como en CloudAMQP.
-- **Negativas**:
-    - Sin replay nativo de eventos ya consumidos (a diferencia de Kafka), si se necesita reconstruir historia hay que loguearla aparte.
-    - El free tier de CloudAMQP limita a 20 conexiones concurrentes; con 10-12 servicios manteniendo una conexión persistente cada uno, el margen es ajustado (mitigar reusando channels sobre una sola conexión por servicio, o self-hosteando RabbitMQ en el VM si se supera el límite).
-    - Entrega *at-least-once* exige que todo consumidor sea idempotente ante duplicados, ya exigido por el enunciado, pero es una responsabilidad extra explícita de cada servicio.
-    - Suma un componente más para operar y monitorear.
+Cumplimos el requisito de comunicación asíncrona, el patrón de exchange topic encaja con los nombres de evento que definimos, las colas durables con confirmación manual dan entrega "al menos una vez" sin perder eventos cuando un consumidor se cae, y cada servicio consumidor puede escalar sin cambiar cómo se publica.
+
+El costo es que no hay repetición de eventos ya consumidos, a diferencia de Kafka, así que reconstruir historia exige haberla guardado aparte. La entrega "al menos una vez" obliga a que todo consumidor tolere duplicados, una responsabilidad extra y explícita de cada servicio. Y sumamos un componente más para operar y vigilar: cuando RabbitMQ pierde su identidad o sus usuarios, varios servicios dejan de recibir eventos sin que ninguno se caiga, como nos pasó en noviembre (ADR-034).
