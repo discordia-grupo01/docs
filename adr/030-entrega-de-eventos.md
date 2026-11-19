@@ -3,7 +3,7 @@
 **Estado:** Aceptada
 **Fecha:** 2026-11-07
 **Servicios:** todos los que publican o consumen eventos (`servers`, `identify-service`, `admin`, `billing`, `metrics`, `messaging`, `notifications`, `voice-sfu`)
-**Relacionadas:** ADR-007 (pub/sub), ADR-017 (réplica local), ADR-018 (outbox de `messaging`), ADR-020 (no leídos por eventos)
+**Relacionadas:** ADR-007 (pub/sub), ADR-017 (réplica local), ADR-018 (outbox de `messaging`), ADR-020 (no leídos por eventos), ADR-037 (circuit breaker)
 
 ## Contexto
 

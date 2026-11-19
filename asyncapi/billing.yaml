@@ -63,7 +63,7 @@ servers:
   rabbitmq:
     host: '{host}'
     protocol: amqp
-    description: Broker RabbitMQ (local vía docker-compose; en la nube, CloudAMQP).
+    description: Broker RabbitMQ (local vía docker-compose; en producción, una instancia propia en una VM de Oracle).
     variables:
       host:
         default: localhost:5672
