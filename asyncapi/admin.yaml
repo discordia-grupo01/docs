@@ -890,7 +890,7 @@ components:
         occurred_at:
           type: string
           format: date-time
-          description: Momento del pedido de borrado, ISO 8601 en UTC.
+          description: Momento del hecho de negocio, ISO 8601 en UTC.
         server_id:
           type: string
           format: uuid
@@ -901,10 +901,10 @@ components:
           description: Dueño del servidor al momento del pedido (ID de discordia-identify).
         server_name:
           type: string
-          description: Nombre del servidor al momento del pedido.
+          description: Nombre del servidor al momento del pedido; después del borrado no queda en ningún otro lado.
         signature:
           type: string
-          description: HMAC-SHA256 en hexadecimal de `routing_key \n event_id \n server_id \n owner_id \n server_name \n occurred_at`.
+          description: HMAC-SHA256 en hexadecimal. Ver la sección "Firma" de la descripción del documento.
       required: [event_id, occurred_at, server_id, owner_id, server_name, signature]
 
     AccountRecoveryApproved:
