@@ -15,7 +15,7 @@ Repartimos las piezas entre varias plataformas gratuitas, aprovechando lo que of
 
 | Plataforma | Qué corre ahí | Ventajas | Desventajas |
 |---|---|---|---|
-| Oracle Cloud | `gateway`, `rabbit-mq`, `messaging`, `billing`, `admin`, `notifications` y el servidor de desarrollo de la app | 2 VMs gratis y siempre gratis (*always free*) por cuenta | Su política detecta el uso de varias cuentas o el uso indebido, y puede suspenderlas. `notifications` corre en una VM aparte, creada en la cuenta de un integrante del equipo |
+| Oracle Cloud | `gateway`, `rabbit-mq`, `messaging`, `billing`, `admin`, `notifications` y el servidor de desarrollo de la app | 2 VMs gratis y siempre gratis (*always free*) por cuenta | Su política detecta el uso de varias cuentas o el uso indebido, y puede suspenderlas |
 | Google Cloud | `identify-service` y `servers` | 1 VM gratis y siempre gratis | Para tener más capacidad hay que crear muchas cuentas |
 | Render | `metrics` | 1 servicio gratis y siempre gratis | Se duerme por inactividad; lo evitamos haciéndole un ping periódico a `/health`. Además incluye solo 5 GB de salida de datos por mes, y al pasarse suspende el servicio hasta el mes siguiente (ver Consecuencias) |
 | Fly.io | `voice-sfu` (señalización) y LiveKit | 1 máquina gratis y siempre gratis | |
