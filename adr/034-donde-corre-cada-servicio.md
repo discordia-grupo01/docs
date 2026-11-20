@@ -27,7 +27,7 @@ Repartimos las piezas entre varias plataformas gratuitas, aprovechando lo que of
 
 La app móvil se publica con Expo. Los servicios de las VMs se despliegan con Docker. Al llegar un cambio a `main` y pasar el CI, un workflow entra por SSH a la VM y actualiza el contenedor; en el caso de `rabbit-mq` hace `git pull` y `docker compose up -d`. `metrics` en Render se despliega solo cuando pasa los checks, y la web en Vercel con cada cambio. `notifications` publica su imagen en Docker Hub al llegar a `main` y el mismo workflow entra por SSH a su VM y corre `~/deploy.sh` con la imagen nueva, que baja el contenedor, espera a que `/readyz` responda y vuelve a la versión anterior si falla.
 
-RabbitMQ lo operamos nosotros, en la VM de Oracle y con su propio volumen, en lugar de usar un servicio administrado (ADR-007). Los servicios que están en otras plataformas, como `metrics` en Render y `notifications` en su VM aparte, llegan a él a través de Tailscale, con un puente local en el contenedor. El puerto de administración queda publicado solo en la propia VM.
+RabbitMQ lo operamos nosotros, en la VM de Oracle y con su propio volumen, en lugar de usar un servicio administrado (ADR-007). Los servicios que están en otras plataformas, como `metrics` en Render y `notifications` en Oracle, llegan a él a través de Tailscale, con un puente local en el contenedor. El puerto de administración queda publicado solo en la propia VM.
 
 ## Alternativas descartadas
 
