@@ -1,8 +1,8 @@
 # ADR-023: Observabilidad con OpenTelemetry y New Relic, con el id de traza propagado por RabbitMQ
 
 **Estado:** Aceptada
-**Fecha:** 2026-11-07
-**Servicios:** los ocho (`servers`, `identify-service`, `admin`, `billing`, `metrics`, `messaging`, `notifications` y `voice-sfu`)
+**Fecha:** 2026-11-07, actualizada el 2026-11-22 (se suma el gateway)
+**Servicios:** los ocho (`servers`, `identify-service`, `admin`, `billing`, `metrics`, `messaging`, `notifications` y `voice-sfu`) y el `gateway` (Kong)
 **Relacionadas:** ADR-007 (pub/sub), ADR-018 (outbox), ADR-035 (logs y health checks)
 
 ## Contexto
@@ -29,6 +29,14 @@ Los logs, que siguen saliendo por la salida estándar, también se pueden enviar
 
 El código es el mismo en todos los servicios: el paquete `internal/telemetry` en los cinco de Go y el módulo `Tracing` en los tres de Elixir, con una copia por repositorio porque cada uno es un módulo aparte.
 
+El 22 de noviembre de 2026 sumamos el gateway, que era lo que había quedado afuera (ver Consecuencias). Kong exporta con el plugin `opentelemetry` que ya trae su imagen gratuita, hacia el mismo New Relic y con la misma clave, y aparece como `gateway-prod`. Abre la traza de cada pedido, siempre una propia, porque con `header_type: ignore` no confía en un `traceparent` que llegue de afuera, y le inyecta el `traceparent` al servicio que atiende el pedido. Así la traza ahora empieza en el gateway y sigue por los servicios y por RabbitMQ.
+
+El problema de privacidad que nos había frenado se resuelve con un plugin `pre-function` en la fase `rewrite`, que borra del span de Kong la dirección completa, donde viaja la query con los tickets del WebSocket, y la IP del cliente. Del pedido quedan el método, el patrón de la ruta, el host, el código de respuesta y la duración.
+
+Los logs de Kong también van a New Relic, con el plugin `http-log` hacia el mismo Log API y un log por pedido. A diferencia de los servicios, no mandamos lo que Kong escribe por defecto, que incluye la dirección con la query, los encabezados con el token y la IP del cliente. El log se arma por lista de permitidos: un `message` (por ejemplo `GET notifications-health 503`), `level` (`error` desde el 500), la hora, el método, los tamaños, el código de respuesta, el nombre de la ruta y del servicio de Kong, las latencias, `entity.name` y `trace.id`, que lo une con la traza del mismo pedido. Todo lo demás se descarta.
+
+Las dos cosas son opcionales y están apagadas por defecto, igual que en los servicios. `kong/render.sh` arma la configuración y agrega cada plugin solo si están `OTEL_EXPORTER_OTLP_ENDPOINT` con su clave, o `LOG_SHIP_URL`; sin esas variables Kong arranca igual y no exporta nada. El CI renderiza y valida la configuración con y sin ellas.
+
 ## Alternativas descartadas
 
 - **Grafana Cloud (Tempo y Loki).** Ya teníamos una cuenta, pero era una prueba gratuita que vencía el 2026-11-21 y habríamos tenido que justificar que OpenTelemetry con Grafana cuenta como "APM o equivalente". Pasarse a Grafana más adelante es cambiar el endpoint y el encabezado.
@@ -36,6 +44,9 @@ El código es el mismo en todos los servicios: el paquete `internal/telemetry` e
 - **CloudWatch y X-Ray.** La infraestructura no está en AWS, y Application Signals es gratis solo tres meses.
 - **Papertrail.** Es solo para logs, no es un APM, y no pudimos confirmar que su plan gratuito exista hoy.
 - **Grafana y Tempo autoalojados en una VM.** No tienen límite de ingesta y los datos quedarían dentro de nuestra infraestructura, pero es un servicio más que desplegar, vigilar y respaldar. Queda como plan B si se agota el plan gratuito.
+- **Dejar el log de acceso de Kong solo en la salida estándar.** Es lo que había, y no entra en las búsquedas de New Relic ni se une con las trazas. Además escribe la ruta real y la IP del cliente.
+- **Mandar el log de Kong con el formato por defecto.** Incluye la query con los tickets, los encabezados con el token y la IP del cliente, así que habría que ir sacando campos uno por uno y cada versión de Kong podría agregar otros. Preferimos una lista de permitidos.
+- **Activar el plugin de OpenTelemetry de Kong sin el filtro.** Exporta la dirección completa con la query y la IP del cliente. Lo comprobamos con una corrida de control, y por eso va con el `pre-function`.
 - **Un colector de OpenTelemetry por máquina, o un recolector de logs como Fluent Bit.** Agregan una pieza por VM y no pueden correr en Render ni en Fly.io, donde están `notifications` y `voice-sfu`, así que cada servicio envía directo.
 - **Las librerías de instrumentación del ecosistema (`otelgin`, `opentelemetry_phoenix`).** Habría que verificar en cada versión que no registren datos de más; preferimos código propio, corto y cubierto por tests.
 - **Cambiar `lib/pq` por `pgx` en `identify-service` y `admin`.** Cambiar el driver de producción solo para poder medir es un riesgo mayor que envolverlo, y `otelsql` lo envuelve sin cambiarlo.
@@ -43,10 +54,14 @@ El código es el mismo en todos los servicios: el paquete `internal/telemetry` e
 
 ## Consecuencias
 
-Hoy los ocho servicios aparecen en New Relic con sus logs, y la traza de una acción se puede seguir desde el pedido hasta los servicios que consumen el evento. A cambio, los datos de trazas, métricas y logs salen a un tercero, en Estados Unidos. Por diseño son operaciones, patrones de ruta, códigos de estado, SQL sin valores e ids de traza; con un colector local verificamos que ni el id de un usuario ni el nombre de un servidor aparecen en lo exportado. Los logs pueden incluir ids de usuario, de servidor y de canal, que ya estaban ahí, pero no los mensajes ni su contenido.
+Hoy los ocho servicios y el gateway aparecen en New Relic con sus logs, y la traza de una acción se puede seguir desde que el pedido entra por Kong hasta los servicios que consumen el evento. A cambio, los datos de trazas, métricas y logs salen a un tercero, en Estados Unidos. Por diseño son operaciones, patrones de ruta, códigos de estado, SQL sin valores e ids de traza; con un colector local verificamos que ni el id de un usuario ni el nombre de un servidor aparecen en lo exportado. Los logs pueden incluir ids de usuario, de servidor y de canal, que ya estaban ahí, pero no los mensajes ni su contenido.
+
+Para el gateway lo verificamos con un Kong real y un colector local: con un pedido que llevaba un ticket y un email en la query y un token en el encabezado, nada de eso aparece en los spans ni en los logs, y una corrida de control sin el filtro de las trazas sí los exportaba. El id de traza del log coincide con el de la traza. El 22 de noviembre de 2026 comprobamos en producción que llegan las trazas de `gateway-prod` y sus logs.
+
+Cada pedido es una línea de log del gateway, y buena parte son chequeos de salud. Cuentan para los mismos 100 GB al mes, así que hay que mirar el volumen después de unos días de uso real; si crece, se pueden dejar de registrar las rutas de salud.
 
 El plan gratuito tiene un límite de 100 GB al mes, y según New Relic al pasarse deja de recibir datos hasta el mes siguiente, sin cobro mientras no se cargue una tarjeta; no lo probamos. Si el volumen se acercara, `OTEL_TRACES_SAMPLER` baja las trazas, pero no los logs ni las métricas, que cuentan para el mismo límite.
 
 También asumimos mantener una copia del paquete por repositorio, de modo que un cambio hay que replicarlo en los cinco servicios de Go y en los tres de Elixir, y que `identify-service`, `admin` y `metrics` pasaron a `go 1.22.7` por las dependencias de OpenTelemetry. La columna nueva del outbox es una migración aditiva que se aplica al pasar a `main`, antes del despliegue, porque el CI corre las migraciones primero.
 
-Lo que quedó afuera: las consultas a Mongo, las llamadas salientes a Expo, Web Push, LiveKit y MercadoPago, las métricas del proceso y las alertas, incluida la de la cola de eventos muertos. La traza hoy empieza en el primer servicio que recibe el pedido, no en el cliente ni en Kong. Pensamos usar el plugin de OpenTelemetry de Kong para abrirla ahí, pero por defecto exporta la URL completa con la query, donde viaja el ticket del WebSocket, y la IP del cliente, lo que contradice la regla de datos, y esa parte no terminó de verificarse, así que la dejamos en pausa hasta consultarlo con el profesor. En `voice-sfu` no hizo falta propagar nada por RabbitMQ, porque sus WebSockets reenvían la señalización WebRTC directo al SFU y no encontramos ningún servicio que consuma sus eventos de presencia de voz.
+Lo que quedó afuera: las consultas a Mongo, las llamadas salientes a Expo, Web Push, LiveKit y MercadoPago, las métricas del proceso y las alertas, incluida la de la cola de eventos muertos. La traza empieza en Kong y no en el cliente: los clientes no mandan `traceparent` y, si lo mandaran, Kong no lo respeta. Caddy, que pone el HTTPS delante de Kong, no está instrumentado. En `voice-sfu` no hizo falta propagar nada por RabbitMQ, porque sus WebSockets reenvían la señalización WebRTC directo al SFU y no encontramos ningún servicio que consuma sus eventos de presencia de voz.
