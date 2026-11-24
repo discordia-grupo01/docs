@@ -64,10 +64,10 @@ channels:
 
       Para las notificaciones push lleva dos datos opcionales: `channel_name`
       (el nombre del canal) y `content_preview` (el texto del mensaje cortado a
-      unos 140 caracteres, con las menciones de rol reemplazadas por `@rol` y
-      las de usuario dejadas como `<@id>` para que el consumidor ponga el
-      nombre, o "Archivo adjunto" si solo trae archivos). Si no están, el
-      consumidor arma un aviso genérico.
+      unos 140 caracteres, con las menciones de usuario (`<@id>`) y de rol
+      (`<@&id>`) dejadas tal cual para que el consumidor ponga el nombre, o
+      "Archivo adjunto" si solo trae archivos. Si no están, el consumidor arma
+      un aviso genérico.
     messages:
       messageCreated:
         $ref: '#/components/messages/MessageCreated'
@@ -92,9 +92,9 @@ channels:
       no depende del orden de llegada ni de los repetidos.
 
       Para las notificaciones push lleva `content_preview` (opcional): el texto
-      del mensaje cortado a unos 140 caracteres, con las menciones de rol
-      reemplazadas por `@rol` y las de usuario dejadas como `<@id>` para que el
-      consumidor ponga el nombre, o "Archivo adjunto" si solo trae archivos.
+      del mensaje cortado a unos 140 caracteres, con las menciones de usuario
+      (`<@id>`) y de rol (`<@&id>`) dejadas tal cual para que el consumidor
+      ponga el nombre, o "Archivo adjunto" si solo trae archivos.
     messages:
       directMessageCreated:
         $ref: '#/components/messages/DirectMessageCreated'
