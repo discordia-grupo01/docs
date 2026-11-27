@@ -46,7 +46,7 @@ const SECTIONS = [
 ];
 
 let headingIds = new Map();
-const slugify = (text) => text.toLowerCase().replace(/<[^>]+>/g, "").replace(/[^\p{L}\p{N}\s_-]/gu, "").trim().replace(/\s/g, "-");
+const slugify = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").trim().replace(/\s/g, "-");
 marked.use({
   hooks: { preprocess: (md) => { headingIds = new Map(); return md; } },
   renderer: {
