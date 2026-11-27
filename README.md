@@ -101,3 +101,4 @@ No tiene tests propios. En cada pull request, en cada push a `develop` o `main` 
 
 - [`events-contract`](https://github.com/discordia-grupo01/events-contract): el contrato de los eventos, de donde salen los schemas.
 - El README de cada servicio explica qué eventos publica y consume.
+- [`manuales`](manuales/README.md): las guías de usuario de las aplicaciones, empezando por la app mobile.
