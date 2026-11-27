@@ -304,6 +304,16 @@ function attrOf(tag, name) {
   return m ? m[1] : "";
 }
 
+function onlyTagsAndSpace(html) {
+  let depth = 0;
+  for (const ch of html) {
+    if (ch === "<") depth += 1;
+    else if (ch === ">") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && ch.trim() !== "") return false;
+  }
+  return true;
+}
+
 const imageSizes = new Map();
 
 function imageSize(file) {
@@ -325,6 +335,7 @@ function readSize(buf) {
       continue;
     }
     const marker = buf[i + 1];
+    // SOF0..SOF15 llevan el tamaño; DHT, JPG y DAC no, aunque caigan en el rango.
     if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
       return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
     }
@@ -354,8 +365,7 @@ function shotGroup(tags, cols, dir) {
 function shotTables(html, dir) {
   return html.replace(/<table>[\s\S]*?<\/table>/g, (table) => {
     const tags = table.match(IMG_TAG) ?? [];
-    const text = table.replace(IMG_TAG, "").replace(/<[^>]+>/g, "").trim();
-    if (tags.length === 0 || text !== "") return table;
+    if (tags.length === 0 || !onlyTagsAndSpace(table)) return table;
     const rows = table.match(/<tr>[\s\S]*?<\/tr>/g) ?? [];
     const perRow = rows.map((row) => (row.match(IMG_TAG) ?? []).length);
     return shotGroup(tags, Math.min(Math.max(1, ...perRow), 3), dir);
@@ -367,8 +377,7 @@ function shotAsides(html, dir) {
   return html.replace(
     new RegExp(`(^|\\n)(<img\\b[^>]*>)\\n([\\s\\S]*?)(?=${stop.source})`, "g"),
     (match, lead, tag, body) => {
-      const text = body.replace(/<[^>]+>/g, " ").trim();
-      if (text === "") return match;
+      if (onlyTagsAndSpace(body)) return match;
       return `${lead}<div class="shot-aside">${shotGroup([tag], 1, dir)}<div class="shot-aside-body">${body}</div></div>`;
     },
   );
