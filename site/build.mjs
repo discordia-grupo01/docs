@@ -42,7 +42,23 @@ const SECTIONS = [
   { id: "openapi", title: "OpenAPI", text: "La API REST de cada servicio." },
   { id: "asyncapi", title: "AsyncAPI", text: "Los eventos entre servicios por RabbitMQ." },
   { id: "operacion", title: "Operación", text: "Reintentos, colas de eventos fallidos y réplicas." },
+  { id: "manuales", title: "Manuales", text: "Guías de usuario de las aplicaciones, con capturas." },
 ];
+
+let headingIds = new Map();
+const slugify = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").trim().replace(/\s/g, "-");
+marked.use({
+  hooks: { preprocess: (md) => { headingIds = new Map(); return md; } },
+  renderer: {
+    heading({ tokens, depth, text }) {
+      const base = slugify(text);
+      const seen = headingIds.get(base) ?? 0;
+      headingIds.set(base, seen + 1);
+      const id = seen ? `${base}-${seen}` : base;
+      return `<h${depth} id="${id}">${this.parser.parseInline(tokens)}</h${depth}>\n`;
+    },
+  },
+});
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -67,6 +83,7 @@ const ICONS = {
   openapi: '<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/>',
   asyncapi: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
   operacion: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  manuales: '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   menu: '<path d="M4 12h16"/><path d="M4 18h16"/><path d="M4 6h16"/>',
@@ -280,11 +297,42 @@ async function buildOperation() {
   return items.length;
 }
 
+async function buildManuales() {
+  const dir = path.join(root, "manuales");
+  if (!existsSync(dir)) return 0;
+  const folders = (await readdir(dir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  const manuals = [];
+  for (const folder of folders) {
+    const src = path.join(dir, folder);
+    if (!existsSync(path.join(src, "README.md"))) continue;
+    const files = (await readdir(src)).filter((f) => f.endsWith(".md")).sort((a, b) => (a === "README.md" ? -1 : b === "README.md" ? 1 : a.localeCompare(b)));
+    const pages = [];
+    for (const f of files) {
+      const md = await readText(path.join(src, f));
+      pages.push({ file: f, out: f === "README.md" ? "index.html" : f.replace(/\.md$/, ".html"), title: firstHeading(md, folder), md });
+    }
+    if (existsSync(path.join(src, "img"))) await cp(path.join(src, "img"), path.join(dist, "manuales", folder, "img"), { recursive: true });
+    manuals.push({ folder, title: pages[0].title, pages });
+  }
+  const side = manuals.flatMap((m) => m.pages.map((p) => ({ href: `manuales/${m.folder}/${p.out}`, label: p.title })));
+  const toHtmlLinks = (html) => html.replace(/href="(?!https?:)([^"#]*?)README\.md(#[^"]*)?"/g, 'href="$1index.html$2"').replace(/href="(?!https?:)([^"#]+?)\.md(#[^"]*)?"/g, 'href="$1.html$2"');
+  const indexMd = existsSync(path.join(dir, "README.md")) ? await readText(path.join(dir, "README.md")) : "# Manuales";
+  const index = `<div class="md">${toHtmlLinks(marked.parse(indexMd))}</div>${listPage(manuals, (m) => `<a class="row" href="${m.folder}/index.html"><span class="title">${esc(m.title)}</span></a>`)}`;
+  await writePage("manuales/index.html", layout({ title: "Manuales", base: "../", sectionId: "manuales", sidebarTitle: "Manuales", sidebarItems: side, activePath: "manuales/index.html", body: index }));
+  for (const m of manuals) {
+    for (const p of m.pages) {
+      const rel = `manuales/${m.folder}/${p.out}`;
+      await writePage(rel, layout({ title: p.title, base: "../../", sectionId: "manuales", sidebarTitle: "Manuales", sidebarItems: side, activePath: rel, body: `<article class="md">${toHtmlLinks(marked.parse(p.md))}</article>` }));
+    }
+  }
+  return manuals.length;
+}
+
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 await cp(path.join(here, "assets"), path.join(dist, "assets"), { recursive: true });
 await writeFile(path.join(dist, ".nojekyll"), "");
 
 await buildIntro();
-const counts = { adr: await buildAdrs(), diagramas: await buildDiagramas(), openapi: await buildOpenApi(), asyncapi: await buildAsyncApi(), operacion: await buildOperation() };
+const counts = { adr: await buildAdrs(), diagramas: await buildDiagramas(), openapi: await buildOpenApi(), asyncapi: await buildAsyncApi(), operacion: await buildOperation(), manuales: await buildManuales() };
 console.log("sitio generado en", dist, counts);

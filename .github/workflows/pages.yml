@@ -8,6 +8,7 @@ on:
       - "adr/**"
       - "diagramas/**"
       - "asyncapi/**"
+      - "manuales/**"
       - "*.md"
       - ".github/workflows/pages.yml"
   schedule:
