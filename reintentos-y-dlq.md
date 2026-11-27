@@ -62,6 +62,8 @@ Quedan afuera, a propósito, las colas efímeras de cada instancia: `messaging.b
 
 El error de cada intento no viaja en los headers: queda en el log del servicio. Los servicios en Elixir (`messaging`, `notifications`, `voice-sfu`) escriben `event_attempt_failed` (con `event_id` e intento) y, al apartar el evento, `event_moved_to_dead_letter_queue`; el motivo está en la línea `..._event_failed` inmediatamente anterior. Los servicios en Go escriben `deadletter: ... attempt N failed` y `deadletter: ... moved to <cola>.dlq`, con el `event_id` en la misma línea.
 
+En `notifications`, un evento de mensaje, mensaje directo, llamada o transferencia también puede llegar a la cola de eventos muertos porque falló la preparación del push (leer dispositivos, presencia o nombres) o porque el grupo de envíos estaba lleno. El motivo está en la línea `push_skipped` (o `push_dropped`) con el mismo `event_id`. Reinyectarlo es seguro: el historial se escribe de forma idempotente y el push no se repite en los dispositivos que ya lo recibieron.
+
 ## Cómo revisar y reinyectar un evento
 
 1. **Mirar si hay algo.** En la interfaz de administración de RabbitMQ, ver si alguna cola `*.dlq` tiene mensajes. Es la señal de que algo falló de forma persistente.
