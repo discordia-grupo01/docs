@@ -269,12 +269,17 @@ Podés salir de la pantalla del canal con la flecha de arriba y seguir en la lla
 
 Esta opción está solo en el APK de Android, no en Expo Go.
 
-<!-- Captura de compartir pantalla (desde el APK) -->
+<table>
+  <tr>
+    <td><img src="img/78-compartir-pantalla.jpg" width="260" alt="Canal de voz con el botón Pantalla en la barra de abajo"></td>
+    <td><img src="img/79-compartiendo-pantalla.jpg" width="260" alt="Pantalla compartida, en su propio recuadro"></td>
+  </tr>
+</table>
 
 1. Entrá a un canal de voz.
 2. En la barra de abajo, tocá **Pantalla**.
 3. Android te pregunta si querés compartir toda la pantalla o una sola app. Elegí y confirmá.
-4. El botón pasa a decir **Compartiendo** y los demás ven tu pantalla en un recuadro aparte. Para dejar de compartir, tocalo otra vez.
+4. El botón pasa a decir **Compartiendo** y tu pantalla aparece como un recuadro aparte, con la etiqueta **Compartiendo**, que ven todos los del canal. Para dejar de compartir, tocá el botón otra vez.
 
 Mientras compartís, todo lo que aparezca en la pantalla lo ven los demás, también las notificaciones. Si vas a mostrar algo privado, poné el celular en **No molestar** antes.
 
@@ -529,14 +534,16 @@ Los pagos se hacen en Mercado Pago. Discordia no guarda los datos de tu tarjeta.
 <table>
   <tr>
     <td><img src="img/39-premium.jpg" width="260" alt="Plan Premium antes de suscribirse"></td>
+    <td><img src="img/76-suscribirse-checkout.jpg" width="260" alt="Confirmación antes de ir a Mercado Pago"></td>
     <td><img src="img/57-premium-activo.jpg" width="260" alt="Plan Premium activo"></td>
   </tr>
 </table>
 
 1. Entrá a **Configuración → Premium**.
-2. Tocá **Suscribirse**. Se abre Mercado Pago con el pago mensual ($ 4.999).
-3. Completá el pago en Mercado Pago y volvé a la app.
-4. La app verifica el pago y, cuando se aprueba, el plan pasa a decir **Activo hasta** con la fecha del próximo vencimiento.
+2. Tocá **Suscribirse**. La app te muestra qué estás por contratar: Discordia Premium a $ 4.999 por mes, que se renueva solo y podés cancelar cuando quieras.
+3. Revisá el **Email del pagador**. Viene con el correo de tu cuenta; cambialo si vas a pagar con otra cuenta de Mercado Pago.
+4. Tocá **Continuar a Mercado Pago** y completá el pago ahí.
+5. Volvé a la app. Verifica el pago y, cuando se aprueba, el plan pasa a decir **Activo hasta** con la fecha del próximo vencimiento.
 
 ### Qué te da Premium
 
@@ -551,11 +558,16 @@ Los pagos se hacen en Mercado Pago. Discordia no guarda los datos de tu tarjeta.
 
 ### Ver o cancelar la suscripción
 
-<img src="img/59-suscripciones.jpg" width="260" alt="Estado de la suscripción">
+<table>
+  <tr>
+    <td><img src="img/59-suscripciones.jpg" width="260" alt="Suscripción activa, con la fecha de la próxima renovación"></td>
+    <td><img src="img/77-suscripcion-cancelada.jpg" width="260" alt="Suscripción cancelada: activa sin renovación"></td>
+  </tr>
+</table>
 
 En **Configuración → Suscripciones** ves si Premium está activo y cuándo se renueva. Se renueva solo cada mes.
 
-Para cancelar, tocá **Cancelar renovación**. No perdés nada en el momento: los beneficios siguen hasta la fecha que ya pagaste y después no se vuelve a cobrar.
+Para cancelar, tocá **Cancelar renovación**. No perdés nada en el momento: la tarjeta pasa a decir **Activo sin renovación** y te avisa hasta qué día conservás los beneficios. Después de esa fecha no se vuelve a cobrar.
 
 ### Comprar puntos
 
