@@ -361,6 +361,63 @@ Desde el menú del servidor, en **Configuración del servidor**, están:
 - **Registro de auditoría**: quién hizo cada acción de moderación y cuándo.
 - **Eliminar servidor**: lo borra para todos. Te pide escribir el nombre del servidor para confirmar, porque no se puede deshacer.
 
+Cada opción aparece solo si tu rol tiene el permiso que hace falta. El dueño del servidor las ve todas.
+
+### Perfil del servidor
+
+Para cambiar el perfil necesitás el permiso **Gestionar el servidor**.
+
+<table>
+  <tr>
+    <td><img src="img/69-perfil-servidor.jpg" width="260" alt="Perfil del servidor"></td>
+    <td><img src="img/70-perfil-servidor-abajo.jpg" width="260" alt="Opciones que se desbloquean con boosts"></td>
+  </tr>
+</table>
+
+1. Entrá a **Configuración del servidor → Perfil del servidor**.
+2. Arriba ves el nivel del servidor y cuántos boosts le faltan para el siguiente.
+3. Cambiá el **nombre** si querés (hasta 100 caracteres).
+4. Tocá el ícono para elegir una foto nueva. Puede ser PNG, JPEG, WEBP o GIF de hasta 5 MB.
+5. Más abajo están las opciones que dependen del nivel: el **ícono animado** (nivel 1), el **banner** y los **fondos predefinidos** (nivel 2) y la **URL de invitación personalizada** (nivel 3). Las que tienen un candado todavía no están disponibles, y la etiqueta te dice cuántos boosts faltan.
+6. Tocá **Guardar cambios**.
+
+### Emojis personalizados
+
+Para subir o borrar emojis necesitás el permiso **Gestionar el servidor**. Cualquier miembro puede usarlos en mensajes y reacciones; los animados (GIF) solo los usa quien tiene Premium.
+
+<table>
+  <tr>
+    <td><img src="img/71-subir-emoji.jpg" width="260" alt="Subir un emoji"></td>
+    <td><img src="img/72-emojis-servidor.jpg" width="260" alt="Emojis del servidor"></td>
+  </tr>
+</table>
+
+1. Entrá a **Configuración del servidor → Emojis personalizados**. Arriba ves cuántos lugares usaste; el nivel de boosts del servidor suma más.
+2. Tocá **Subir emoji**.
+3. Tocá **Elegir imagen** y elegí una foto del celular (PNG, WEBP o GIF de hasta 5 MB).
+4. Escribí el **nombre** con el que se va a usar, por ejemplo `fiuba`. Puede tener entre 2 y 32 letras, números o guiones bajos. Abajo ves cómo va a quedar en el chat.
+5. Tocá **Subir emoji**. Aparece en la lista **Emojis del servidor**.
+
+Para borrar uno, tocá el tacho al lado y confirmá con **Eliminar emoji**. Se libera el lugar, pero en los mensajes donde ya se usó se sigue viendo.
+
+### Palabras prohibidas
+
+Para editar la lista necesitás el permiso **Gestionar mensajes**.
+
+<table>
+  <tr>
+    <td><img src="img/74-palabras-prohibidas.jpg" width="260" alt="Lista de palabras prohibidas"></td>
+    <td><img src="img/75-mensaje-bloqueado.jpg" width="260" alt="Mensaje bloqueado por una palabra prohibida"></td>
+  </tr>
+</table>
+
+1. Entrá a **Configuración del servidor → Palabras prohibidas**.
+2. Escribí una palabra o una frase y tocá **+**. Podés cargar hasta 100.
+3. Para sacar una, tocá la cruz que tiene al lado.
+4. Tocá **Guardar cambios**. Abajo aparece **Lista guardada**.
+
+Desde ese momento, si alguien intenta mandar un mensaje que contiene alguna de esas palabras, el mensaje no se envía y queda marcado en rojo con el aviso "Tu mensaje contiene una palabra prohibida en este servidor" y la palabra que lo frenó. La regla vale para todos, también para el dueño. Con **Eliminar** se descarta y se puede escribir de nuevo sin esa palabra. Los mensajes que ya se habían mandado antes no cambian.
+
 ### Roles y permisos
 
 <table>
